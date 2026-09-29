@@ -119,7 +119,50 @@ dependencies, guards against double-sourcing, and enforces strict mode.
 | `spinner_start "msg"` / `spinner_stop` | The spinner primitives `run` is built on. |
 | `command_exists "cmd"` | `command -v` with a quiet failure mode. |
 | `append_if_missing file marker content` | Append content to a file only if the marker string is not already present — the idempotency primitive for editing dotfiles. |
+| `show_requirements [file]` | Render the `## Requirements` bullets of a markdown file as a numbered checklist, with `` `code` `` and `**bold**` styled. |
+| `check_requirements` | Verify the machine against each requirement, printing the observed value next to the verdict. Returns non-zero if any check fails. |
+| `preflight [file]` | `show_requirements` → `check_requirements` → `confirm`. The one-liner called at the top of an entrypoint. |
+| `confirm "prompt"` | `[Y/n]` gate. Auto-approves when `SETUP_ASSUME_YES=1` or when there is no TTY, so it is CI-safe. |
+| `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. The parser behind `show_requirements`. |
+| `bullet "marker" "text"` | One checklist line with inline markdown rendered. |
+| `md_inline "text"` | Terminal rendering of `` `code` `` (bold cyan) and `**bold**` (stripped). |
 | `LOG_FILE` | Path to the current run's log file. |
+
+## Before it runs
+
+`main.sh` calls `preflight` right after the banner, so every run starts by showing
+the requirements and proving them against your machine:
+
+```
+▶  Requirements
+──────────────────────────────────────────────────
+  1.  Linux (the script hard-fails on anything else)
+  2.  bash 4.0 or newer
+  3.  Ubuntu or Debian, apt based
+  4.  sudo available — the script will prompt for your password
+
+▶  Environment check
+──────────────────────────────────────────────────
+  ✓  Linux — kernel Linux 6.6.13-1-default
+  ✓  bash 4.0+ — bash 5.2.21(1)-release
+  ✓  Ubuntu or Debian, apt-based — Ubuntu 24.04.1 LTS, apt-get: /usr/bin/apt-get
+  ✓  sudo available — sudo: /usr/bin/sudo
+  ✓  all requirements satisfied
+  ›  Run the setup now? [Y/n]
+```
+
+The list is **not** hardcoded in `ui.sh` — it is parsed out of the
+[`## Requirements`](#requirements) section of this file, so editing the bullets
+above is enough to change what the script displays. The path is resolved
+relative to `lib/ui.sh`, so it works from any working directory; set `UI_README`
+to point somewhere else.
+
+A failed check aborts before anything is installed. Two escape hatches:
+
+| Variable | Effect |
+|---|---|
+| `SETUP_ASSUME_YES=1` | Skip the `[Y/n]` prompt. Implied automatically when stdout is not a TTY (CI, pipes). |
+| `SOFT_PREFLIGHT=1` | Report failed checks as warnings and continue instead of aborting. |
 
 ## Writing a new module
 
@@ -148,6 +191,12 @@ something_setup() {
 
 Then add a numbered section in `main.sh`. Sections 3–8 (Zsh, nvm, PHP, SDKMAN, Git,
 SSH) are stubbed out and waiting to be ported from `dev-setup.sh`.
+
+A module never has to call `preflight` — the entrypoint does it once, before the
+first section. If your module introduces a new hard prerequisite, add it as a
+`predicate|detail` row in the `check_requirements` table in `lib/ui.sh` and a
+matching bullet in this file's [Requirements](#requirements) section, so the
+displayed list and the actual checks stay in sync.
 
 ## Notes
 

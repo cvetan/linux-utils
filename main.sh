@@ -3,10 +3,13 @@
 set -euo pipefail
 
 source './lib/ui.sh'
-source './lib/base_packages.sh'
-source './lib/docker.sh'
+source './base_packages.sh'
+source './docker.sh'
 
 banner 'DEVELOPMENT MACHINE SETUP'
+
+# Show README requirements, verify them on this machine, ask for confirmation.
+preflight
 
 # =============================================================================
 # 1. SYSTEM UPDATE & BASE PACKAGES
