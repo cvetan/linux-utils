@@ -2,7 +2,7 @@
 # =============================================================================
 # Dev Machine Setup — Ubuntu / Debian
 # Usage:
-#   chmod +x setup.sh && ./setup.sh
+#   chmod +x setup/dev-setup.sh && ./setup/dev-setup.sh
 #
 # To bundle your SSH keys:
 #   base64 -w0 ~/.ssh/id_ed25519     → paste into PRIVATE_KEY below
@@ -26,49 +26,49 @@ exec > >(tee -a "$LOG_FILE") 2>&1   # tee keeps stdout visible for section/info
 _SPINNER_PID=""
 
 spinner_start() {
-  local msg="$1"
-  local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
-  # Run spinner in a subshell so it doesn't block
-  (
-    local i=0
-    while true; do
-      printf "\r  ${CYAN}%s${NC}  %s " "${frames[$((i % ${#frames[@]}))]}" "$msg"
-      sleep 0.1
-      (( i++ )) || true
-    done
-  ) &
-  _SPINNER_PID=$!
-  # Suppress job-control noise
-  disown "$_SPINNER_PID" 2>/dev/null || true
+    local msg="$1"
+    local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+    # Run spinner in a subshell so it doesn't block
+    (
+        local i=0
+        while true; do
+            printf "\r  ${CYAN}%s${NC}  %s " "${frames[$((i % ${#frames[@]}))]}" "$msg"
+            sleep 0.1
+            (( i++ )) || true
+        done
+    ) &
+    _SPINNER_PID=$!
+    # Suppress job-control noise
+    disown "$_SPINNER_PID" 2>/dev/null || true
 }
 
 spinner_stop() {
-  local label="${1:-}"
-  if [[ -n "$_SPINNER_PID" ]]; then
-    kill "$_SPINNER_PID" 2>/dev/null || true
-    wait "$_SPINNER_PID" 2>/dev/null || true
-    _SPINNER_PID=""
-  fi
-  printf "\r\033[2K"   # clear the spinner line
-  [[ -n "$label" ]] && info "$label"
+    local label="${1:-}"
+    if [[ -n "$_SPINNER_PID" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null || true
+        wait "$_SPINNER_PID" 2>/dev/null || true
+        _SPINNER_PID=""
+    fi
+    printf "\r\033[2K"   # clear the spinner line
+    [[ -n "$label" ]] && info "$label"
 }
 
 # ── run: execute a command silently with a spinner ────────────────────────────
 # Usage: run "Spinner label" cmd arg1 arg2 ...
 # Output goes to LOG_FILE; on failure, dumps the last 20 lines of the log.
 run() {
-  local label="$1"; shift
-  spinner_start "$label"
-  local exit_code=0
-  # Run command, appending only to log (not terminal)
-  "$@" >> "$LOG_FILE" 2>&1 || exit_code=$?
-  spinner_stop "$label"
-  if [[ $exit_code -ne 0 ]]; then
-    echo -e "${RED}  ✗  FAILED: $label (exit $exit_code)${NC}"
-    echo -e "${YELLOW}  Last output (see full log: $LOG_FILE):${NC}"
-    tail -20 "$LOG_FILE" | sed 's/^/    /'
-    exit $exit_code
-  fi
+    local label="$1"; shift
+    spinner_start "$label"
+    local exit_code=0
+    # Run command, appending only to log (not terminal)
+    "$@" >> "$LOG_FILE" 2>&1 || exit_code=$?
+    spinner_stop "$label"
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "${RED}  ✗  FAILED: $label (exit $exit_code)${NC}"
+        echo -e "${YELLOW}  Last output (see full log: $LOG_FILE):${NC}"
+        tail -20 "$LOG_FILE" | sed 's/^/    /'
+        exit $exit_code
+    fi
 }
 
 # ── SSH Keys (base64-encoded) ─────────────────────────────────────────────────
@@ -91,9 +91,9 @@ JAVA_VERSION="21.0.2-tem" # SDKMAN identifier; run `sdk list java` to browse
 command_exists() { command -v "$1" &>/dev/null; }
 
 require_root_or_sudo() {
-  if [[ $EUID -ne 0 ]] && ! sudo -n true 2>/dev/null; then
-    warn "This script needs sudo. You may be prompted for your password."
-  fi
+    if [[ $EUID -ne 0 ]] && ! sudo -n true 2>/dev/null; then
+        warn "This script needs sudo. You may be prompted for your password."
+    fi
 }
 
 # =============================================================================
@@ -106,20 +106,20 @@ run "Updating package lists" sudo apt-get update
 run "Upgrading installed packages" sudo apt-get upgrade -y
 
 run "Installing base packages" sudo apt-get install -y \
-  build-essential \
-  curl wget git unzip zip \
-  jq ripgrep fzf tmux \
-  htop tree bat fd-find \
-  zsh \
-  gnupg ca-certificates lsb-release \
-  software-properties-common apt-transport-https \
-  xclip xsel \
-  openssh-client
+    build-essential \
+    curl wget git unzip zip \
+    jq ripgrep fzf tmux \
+    htop tree bat fd-find \
+    zsh \
+    gnupg ca-certificates lsb-release \
+    software-properties-common apt-transport-https \
+    xclip xsel \
+    openssh-client
 
 # bat is installed as 'batcat' on Ubuntu — alias it
 if command_exists batcat && ! command_exists bat; then
-  mkdir -p ~/.local/bin
-  ln -sf "$(command -v batcat)" ~/.local/bin/bat
+    mkdir -p ~/.local/bin
+    ln -sf "$(command -v batcat)" ~/.local/bin/bat
 fi
 
 # =============================================================================
@@ -129,35 +129,35 @@ fi
 section "Docker Engine"
 
 if command_exists docker; then
-  info "Docker already installed ($(docker --version)). Skipping."
+    info "Docker already installed ($(docker --version)). Skipping."
 else
-  info "Installing Docker Engine..."
+    info "Installing Docker Engine..."
 
-  # Remove old packages
-  run "Removing old Docker packages" bash -c \
-    'for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
-       sudo apt-get remove -y "$pkg" 2>/dev/null || true
-     done'
+    # Remove old packages
+    run "Removing old Docker packages" bash -c \
+        'for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
+            sudo apt-get remove -y "$pkg" 2>/dev/null || true
+        done'
 
-  # Add Docker's official GPG key & repo
-  run "Adding Docker GPG key & repo" bash -c '
-    sudo install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-      | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    sudo chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-      https://download.docker.com/linux/ubuntu \
-      $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-      | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    sudo apt-get update
-  '
+    # Add Docker's official GPG key & repo
+    run "Adding Docker GPG key & repo" bash -c '
+        sudo install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+            | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        sudo chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+            https://download.docker.com/linux/ubuntu \
+            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+            | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        sudo apt-get update
+    '
 
-  run "Installing Docker Engine" sudo apt-get install -y \
-    docker-ce docker-ce-cli containerd.io \
-    docker-buildx-plugin docker-compose-plugin
+    run "Installing Docker Engine" sudo apt-get install -y \
+        docker-ce docker-ce-cli containerd.io \
+        docker-buildx-plugin docker-compose-plugin
 
-  sudo usermod -aG docker "$USER"
-  info "Docker installed. Re-login required to run without sudo."
+    sudo usermod -aG docker "$USER"
+    info "Docker installed. Re-login required to run without sudo."
 fi
 
 # =============================================================================
@@ -167,34 +167,34 @@ fi
 section "Zsh + Oh-My-Zsh"
 
 if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
-  run "Installing Oh-My-Zsh" bash -c \
-    'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+    run "Installing Oh-My-Zsh" bash -c \
+        'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
 else
-  info "Oh-My-Zsh already installed. Skipping."
+    info "Oh-My-Zsh already installed. Skipping."
 fi
 
 # Set zsh as default shell
 if [[ "$SHELL" != "$(command -v zsh)" ]]; then
-  chsh -s "$(command -v zsh)"
-  info "Default shell set to zsh. Takes effect on next login."
+    chsh -s "$(command -v zsh)"
+    info "Default shell set to zsh. Takes effect on next login."
 fi
 
 # ── .zshrc additions ─────────────────────────────────────────────────────────
 ZSHRC="$HOME/.zshrc"
 
 append_if_missing() {
-  local marker="$1"; local content="$2"
-  grep -qF "$marker" "$ZSHRC" 2>/dev/null || echo -e "$content" >> "$ZSHRC"
+    local marker="$1"; local content="$2"
+    grep -qF "$marker" "$ZSHRC" 2>/dev/null || echo -e "$content" >> "$ZSHRC"
 }
 
 append_if_missing "# bat alias" \
-  '\n# bat alias\nalias cat="bat --paging=never"'
+    '\n# bat alias\nalias cat="bat --paging=never"'
 
 append_if_missing "# fd alias" \
-  '\n# fd alias (fd-find)\nalias fd="fdfind"'
+    '\n# fd alias (fd-find)\nalias fd="fdfind"'
 
 append_if_missing "~/.local/bin" \
-  '\nexport PATH="$HOME/.local/bin:$PATH"'
+    '\nexport PATH="$HOME/.local/bin:$PATH"'
 
 # =============================================================================
 # 4. NVM + NODE.JS
@@ -205,8 +205,8 @@ section "nvm + Node.js"
 export NVM_DIR="$HOME/.nvm"
 
 if [[ ! -d "$NVM_DIR" ]]; then
-  run "Installing nvm" bash -c \
-    'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'
+    run "Installing nvm" bash -c \
+        'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'
 fi
 
 # Load nvm in this shell session
@@ -214,15 +214,15 @@ fi
 [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
 
 if ! nvm ls "$NODE_VERSION" &>/dev/null; then
-  run "Installing Node $NODE_VERSION" bash -c \
-    "source \"$NVM_DIR/nvm.sh\" && nvm install \"$NODE_VERSION\" && nvm alias default \"$NODE_VERSION\""
+    run "Installing Node $NODE_VERSION" bash -c \
+        "source \"$NVM_DIR/nvm.sh\" && nvm install \"$NODE_VERSION\" && nvm alias default \"$NODE_VERSION\""
 fi
 
 info "Node: $(node --version)  npm: $(npm --version)"
 
 # Add nvm to .zshrc
 append_if_missing "NVM_DIR" \
-  '\n# nvm\nexport NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"\n[ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"'
+    '\n# nvm\nexport NVM_DIR="$HOME/.nvm"\n[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"\n[ -s "$NVM_DIR/bash_completion" ] && source "$NVM_DIR/bash_completion"'
 
 # =============================================================================
 # 5. PHP + COMPOSER + LARAVEL
@@ -232,44 +232,44 @@ section "PHP + Composer + Laravel"
 
 # Add Ondřej's PPA for latest PHP
 if ! apt-cache show php8.3 &>/dev/null 2>&1; then
-  run "Adding PHP 8.3 PPA" bash -c \
-    'sudo add-apt-repository -y ppa:ondrej/php && sudo apt-get update'
+    run "Adding PHP 8.3 PPA" bash -c \
+        'sudo add-apt-repository -y ppa:ondrej/php && sudo apt-get update'
 fi
 
 run "Installing PHP 8.3 & extensions" sudo apt-get install -y \
-  php8.3 php8.3-cli php8.3-fpm \
-  php8.3-mbstring php8.3-xml php8.3-curl \
-  php8.3-zip php8.3-bcmath php8.3-intl \
-  php8.3-mysql php8.3-pgsql php8.3-sqlite3 \
-  php8.3-redis php8.3-gd \
-  php-pear
+    php8.3 php8.3-cli php8.3-fpm \
+    php8.3-mbstring php8.3-xml php8.3-curl \
+    php8.3-zip php8.3-bcmath php8.3-intl \
+    php8.3-mysql php8.3-pgsql php8.3-sqlite3 \
+    php8.3-redis php8.3-gd \
+    php-pear
 
 info "PHP: $(php --version | head -1)"
 
 # Composer
 if ! command_exists composer; then
-  run "Installing Composer" bash -c '
-    EXPECTED="$(php -r "copy(\"https://composer.github.io/installer.sig\", \"php://stdout\");")"
-    php -r "copy(\"https://getcomposer.org/installer\", \"composer-setup.php\");"
-    ACTUAL="$(php -r "echo hash_file(\"sha384\", \"composer-setup.php\");")"
-    if [[ "$EXPECTED" != "$ACTUAL" ]]; then
-      echo "Composer installer checksum mismatch!" >&2
-      rm composer-setup.php; exit 1
-    fi
-    php composer-setup.php --quiet
-    rm composer-setup.php
-    sudo mv composer.phar /usr/local/bin/composer
-  '
+    run "Installing Composer" bash -c '
+        EXPECTED="$(php -r "copy(\"https://composer.github.io/installer.sig\", \"php://stdout\");")"
+        php -r "copy(\"https://getcomposer.org/installer\", \"composer-setup.php\");"
+        ACTUAL="$(php -r "echo hash_file(\"sha384\", \"composer-setup.php\");")"
+        if [[ "$EXPECTED" != "$ACTUAL" ]]; then
+            echo "Composer installer checksum mismatch!" >&2
+            rm composer-setup.php; exit 1
+        fi
+        php composer-setup.php --quiet
+        rm composer-setup.php
+        sudo mv composer.phar /usr/local/bin/composer
+    '
 fi
 
 # Laravel installer (global)
 if ! command_exists laravel; then
-  run "Installing Laravel installer" composer global require laravel/installer --quiet
+    run "Installing Laravel installer" composer global require laravel/installer --quiet
 fi
 
 # Add Composer global bin to PATH
 append_if_missing "composer/vendor/bin" \
-  '\n# Composer global bin\nexport PATH="$HOME/.config/composer/vendor/bin:$PATH"'
+    '\n# Composer global bin\nexport PATH="$HOME/.config/composer/vendor/bin:$PATH"'
 
 info "Laravel installer ready. Create projects with: laravel new myapp"
 
@@ -282,7 +282,7 @@ section "SDKMAN + Java"
 export SDKMAN_DIR="$HOME/.sdkman"
 
 if [[ ! -d "$SDKMAN_DIR" ]]; then
-  run "Installing SDKMAN" bash -c 'curl -s "https://get.sdkman.io" | bash'
+    run "Installing SDKMAN" bash -c 'curl -s "https://get.sdkman.io" | bash'
 fi
 
 # Load SDKMAN in this shell session
@@ -290,15 +290,15 @@ fi
 [[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]] && source "$SDKMAN_DIR/bin/sdkman-init.sh"
 
 if ! sdk list java 2>/dev/null | grep -q " ${JAVA_VERSION} "; then
-  run "Installing Java $JAVA_VERSION" bash -c \
-    "source \"$SDKMAN_DIR/bin/sdkman-init.sh\" && sdk install java \"$JAVA_VERSION\" < /dev/null"
+    run "Installing Java $JAVA_VERSION" bash -c \
+        "source \"$SDKMAN_DIR/bin/sdkman-init.sh\" && sdk install java \"$JAVA_VERSION\" < /dev/null"
 fi
 
 sdk default java "$JAVA_VERSION" >> "$LOG_FILE" 2>&1 || true
 
 # Add SDKMAN to .zshrc
 append_if_missing "SDKMAN_DIR" \
-  '\n# SDKMAN\nexport SDKMAN_DIR="$HOME/.sdkman"\n[[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]] && source "$SDKMAN_DIR/bin/sdkman-init.sh"'
+    '\n# SDKMAN\nexport SDKMAN_DIR="$HOME/.sdkman"\n[[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]] && source "$SDKMAN_DIR/bin/sdkman-init.sh"'
 
 # =============================================================================
 # 7. GIT CONFIGURATION
@@ -326,29 +326,29 @@ mkdir -p "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 
 if [[ -n "$PRIVATE_KEY" && -n "$PUBLIC_KEY" ]]; then
-  info "Restoring SSH keys from embedded base64..."
+    info "Restoring SSH keys from embedded base64..."
 
-  echo "$PRIVATE_KEY" | base64 -d > "$SSH_DIR/id_ed25519"
-  echo "$PUBLIC_KEY"  | base64 -d > "$SSH_DIR/id_ed25519.pub"
+    echo "$PRIVATE_KEY" | base64 -d > "$SSH_DIR/id_ed25519"
+    echo "$PUBLIC_KEY"  | base64 -d > "$SSH_DIR/id_ed25519.pub"
 
-  chmod 600 "$SSH_DIR/id_ed25519"
-  chmod 644 "$SSH_DIR/id_ed25519.pub"
+    chmod 600 "$SSH_DIR/id_ed25519"
+    chmod 644 "$SSH_DIR/id_ed25519.pub"
 
-  # Start ssh-agent and add key
-  eval "$(ssh-agent -s)" > /dev/null
-  ssh-add "$SSH_DIR/id_ed25519"
+    # Start ssh-agent and add key
+    eval "$(ssh-agent -s)" > /dev/null
+    ssh-add "$SSH_DIR/id_ed25519"
 
-  info "SSH key restored and added to agent."
-  info "Public key:"
-  cat "$SSH_DIR/id_ed25519.pub"
+    info "SSH key restored and added to agent."
+    info "Public key:"
+    cat "$SSH_DIR/id_ed25519.pub"
 else
-  warn "PRIVATE_KEY / PUBLIC_KEY not set. Generating a new ed25519 key..."
-  ssh-keygen -t ed25519 -C "$GIT_EMAIL" -f "$SSH_DIR/id_ed25519" -N ""
-  eval "$(ssh-agent -s)" > /dev/null
-  ssh-add "$SSH_DIR/id_ed25519"
-  info "New SSH key generated. Add this public key to GitHub/GitLab:"
-  echo ""
-  cat "$SSH_DIR/id_ed25519.pub"
+    warn "PRIVATE_KEY / PUBLIC_KEY not set. Generating a new ed25519 key..."
+    ssh-keygen -t ed25519 -C "$GIT_EMAIL" -f "$SSH_DIR/id_ed25519" -N ""
+    eval "$(ssh-agent -s)" > /dev/null
+    ssh-add "$SSH_DIR/id_ed25519"
+    info "New SSH key generated. Add this public key to GitHub/GitLab:"
+    echo ""
+    cat "$SSH_DIR/id_ed25519.pub"
 fi
 
 # =============================================================================
