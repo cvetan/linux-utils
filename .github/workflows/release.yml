@@ -1,0 +1,79 @@
+name: Release
+
+# A GitHub Release is the trigger: tag, create the release, and this builds the
+# makeself archive and attaches it.
+#
+#   git tag -a v2.0.0 -m "v2.0.0" && git push origin v2.0.0
+#   gh release create v2.0.0 --generate-notes
+#
+# `workflow_dispatch` re-runs the same job against an existing tag, for when a
+# release went out before this workflow did.
+#
+# If this ever moves to tag pushes instead — the only reason it is not there
+# already is that a tag alone has no release to attach an asset to — change two
+# things and nothing else:
+#
+#   on:
+#     push:
+#       tags: ['v*']
+#
+#   env:
+#     VERSION: ${{ github.ref_name }}
+#
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish under — the release is created if it does not exist'
+        required: true
+        type: string
+
+# Attaching assets to a release is a write.
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ github.event.release.tag_name || inputs.tag }}
+
+jobs:
+  build:
+    name: Build linux-utils ${{ github.event.release.tag_name || inputs.tag }}
+    runs-on: ubuntu-24.04
+
+    # Two runs against the same tag would race to upload the same asset name.
+    concurrency:
+      group: release-${{ github.event.release.tag_name || inputs.tag }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Pinned image, because the makeself version comes from apt and floats with
+      # the runner (2.5.0-1 on noble). Debian and Ubuntu install it as
+      # /usr/bin/makeself with the path to makeself-header.sh patched in, so the
+      # binary on PATH is the whole installation.
+      - name: Install makeself
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends makeself
+          makeself --version
+
+      # Invoked through `bash` so a checkout that lost the executable bit fails
+      # on nothing.
+      - name: Build and verify the archive
+        run: bash scripts/build-archive.sh "$VERSION" dist
+
+      - name: Attach to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.VERSION }}
+          # Globbed rather than named: a tag may contain characters the filename
+          # cannot (release/v2.0.0 → release-v2.0.0), and fail_on_unmatched_files
+          # turns a typo into a failed job rather than a release with no asset.
+          files: |
+            dist/linux-utils-*.run
+            dist/linux-utils-*.run.sha256
+          fail_on_unmatched_files: true

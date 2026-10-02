@@ -41,6 +41,73 @@ Re-running the script is safe. Most steps check whether their target is already
 installed and skip if so; the ones that do not — the `apt` update, the PPA adds,
 the base package install — are idempotent by nature.
 
+## One-file installer
+
+Every release ships a self-extracting archive built with
+[makeself](https://makeself.io/): the whole tool as a single
+`linux-utils-<tag>.run`. No clone, and nothing to install first — `bash`, `tar`
+and `gzip`, all of which a machine being set up already has.
+
+```bash
+curl -fsSLO https://github.com/cvetan/linux-utils/releases/latest/download/linux-utils-v2.0.0.run
+chmod +x linux-utils-v2.0.0.run
+./linux-utils-v2.0.0.run
+```
+
+The archive extracts itself into a temporary directory, runs `main.sh` from
+there, and deletes the directory when the run finishes. Its layout inside is the
+same as a clone's, because every path in this repo is resolved from
+`BASH_SOURCE` rather than the working directory. The stub's own flags work as
+documented:
+
+| Flag | Effect |
+|---|---|
+| `--info` | What is inside, without extracting. |
+| `--check` | Verify the embedded checksums. |
+| `--noexec` | Extract without running the setup. |
+| `--keep` | Leave the extracted tree on disk. |
+| `--target dir` | Extract into `dir` and run from there. |
+
+**Do not pipe it into `bash`** (`curl … | bash`). With no terminal the preflight
+prompt auto-approves itself and `sudo` has no way to ask for your password, so a
+run that should have stopped at the confirmation will not.
+
+Check a download against the `.sha256` asset published with it:
+
+```bash
+sha256sum -c linux-utils-v2.0.0.run.sha256
+```
+
+### Building the archive
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) builds the
+archive and attaches it to a published release;
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds the same
+artifact on every pull request and push and hands it back as a workflow
+artifact, so it can be tried on a throwaway machine before a tag goes out. Both
+call the same script, which is the whole of what CI does:
+
+```bash
+./scripts/build-archive.sh              # version from `git describe`, output in dist/
+./scripts/build-archive.sh v2.0.0       # explicit version
+./scripts/build-archive.sh v2.0.0 dist  # explicit output directory
+```
+
+It wants makeself — `sudo apt install makeself`, or point `$MAKESELF` at one you
+unpacked yourself — and writes `dist/linux-utils-<version>.run` with a
+`.sha256` beside it. Nothing in it runs the setup: the archive is extracted with
+`--noexec` and inspected, because a release job has no business installing apt
+packages on a runner.
+
+Two things about it are deliberate. The payload is an explicit allowlist —
+`main.sh`, `README.md`, `lib/`, `setup/` without the v1 monolith — because the
+preflight parses the `## Requirements` bullets out of the bundled README at run
+time, so an archive missing it extracts fine and then quietly verifies nothing.
+And the build refuses to publish an archive it has not checked first: the
+embedded checksums, the file list, the executable bit on `main.sh`, `bash -n`
+over every packaged script, and a read of the requirements back out of the
+extracted copy.
+
 ## What gets installed
 
 This is v1's package set. v2's base packages differ — see
@@ -154,6 +221,10 @@ confirmation prompt at all.
 
 ```
 linux-utils/
+├── .github/
+│   └── workflows/
+│       ├── build.yml          # build + verify the .run on every PR and push
+│       └── release.yml        # …and attach it to a published release
 ├── README.md
 ├── main.sh              # v2 entrypoint — owns shell options, logging, preflight
 ├── lib/
@@ -161,6 +232,8 @@ linux-utils/
 │   ├── log.sh           # the run log file and the `run` command wrapper
 │   ├── utils.sh         # command_exists, append_if_missing
 │   └── preflight.sh     # machine detection, requirement checks, confirmation
+├── scripts/
+│   └── build-archive.sh # package the repo into a makeself .run for a release
 └── setup/
     ├── dev-setup.sh     # v1 monolith — legacy, superseded
     ├── base_packages.sh # v2: apt repositories + base packages
@@ -362,6 +435,10 @@ A few rules keep the layering intact:
 - **A new hard prerequisite needs two edits:** a `key|predicate|detail` row in
   `_REQ_CHECKS` in `lib/preflight.sh`, and a matching bullet in this file's
   [Requirements](#requirements) section. Miss either and the run says so.
+- **A new file needs two edits too:** a `source` line in `main.sh`, and an entry
+  in `REQUIRED_FILES` in `scripts/build-archive.sh`. The archive payload is an
+  allowlist, so a module that is not listed works from a clone and is silently
+  missing from a release.
 - **Indent is 4 spaces, no tabs,** in every `.sh` file — one level per block,
   including the payload of a `bash -c '…'` string. Here-doc bodies start at
   column 0, because `<<EOF` strips the indentation but not the content.
