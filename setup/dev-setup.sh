@@ -166,22 +166,83 @@ fi
 
 section "Zsh + Oh-My-Zsh"
 
+# ── Oh-My-Zsh ────────────────────────────────────────────────────────────────
 if [[ ! -d "$HOME/.oh-my-zsh" ]]; then
-    run "Installing Oh-My-Zsh" bash -c \
-        'RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"'
+    run "Installing Oh-My-Zsh" env RUNZSH=no CHSH=no KEEP_ZSHRC=yes bash -c \
+        'curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | sh -s -- --unattended'
 else
     info "Oh-My-Zsh already installed. Skipping."
 fi
 
-# Set zsh as default shell
-if [[ "$SHELL" != "$(command -v zsh)" ]]; then
-    chsh -s "$(command -v zsh)"
-    info "Default shell set to zsh. Takes effect on next login."
+# ── Theme + plugins ──────────────────────────────────────────────────────────
+ZSH_CUSTOM_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}"
+
+clone_zsh_extra() {
+    local name="$1" url="$2" dest="$3"
+    if [[ -d "$dest/.git" ]]; then
+        info "$name already present. Skipping."
+    else
+        mkdir -p "$(dirname "$dest")"
+        run "Cloning $name" git clone --depth=1 "$url" "$dest"
+    fi
+}
+
+clone_zsh_extra "zsh-completions"    https://github.com/zsh-users/zsh-completions     "$ZSH_CUSTOM_DIR/plugins/zsh-completions"
+clone_zsh_extra "zsh-autosuggestions" https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM_DIR/plugins/zsh-autosuggestions"
+clone_zsh_extra "powerlevel10k"      https://github.com/romkatv/powerlevel10k.git      "$ZSH_CUSTOM_DIR/themes/powerlevel10k"
+
+# ── Base .zshrc ──────────────────────────────────────────────────────────────
+# Written once (guarded by a marker). Later sections append to it (nvm, SDKMAN, ...),
+# so it is intentionally NOT overwritten on re-runs.
+ZSHRC="$HOME/.zshrc"
+ZSHRC_MARKER="# Managed by dev-setup.sh (base config)"
+
+if grep -qF "$ZSHRC_MARKER" "$ZSHRC" 2>/dev/null; then
+    info ".zshrc base config already applied. Skipping."
+else
+    if [[ -f "$ZSHRC" ]]; then
+        ZSHRC_BACKUP="$ZSHRC.bak.$(date +%Y%m%d-%H%M%S)"
+        cp "$ZSHRC" "$ZSHRC_BACKUP"
+        warn "Existing .zshrc backed up to $ZSHRC_BACKUP"
+    fi
+    cat > "$ZSHRC" <<'ZSHRC_EOF'
+# Managed by dev-setup.sh (base config)
+
+# Path to your oh-my-zsh installation.
+export ZSH="$HOME/.oh-my-zsh"
+
+# Powerlevel10k settings (must be set before oh-my-zsh is sourced)
+POWERLEVEL9K_MODE="nerdfont-complete"
+POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
+POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir vcs)
+POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status root_indicator)
+
+ZSH_THEME="powerlevel10k/powerlevel10k"
+
+# Add wisely, as too many plugins slow down shell startup.
+plugins=(git gitfast zsh-completions zsh-autosuggestions mvn)
+
+source $ZSH/oh-my-zsh.sh
+
+# ---- User configuration ----
+alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'
+ZSHRC_EOF
+    info "Base .zshrc written (theme, plugins, prompt, aliases)."
+fi
+
+# ── Default shell ────────────────────────────────────────────────────────────
+ZSH_BIN="$(command -v zsh)"
+CURRENT_LOGIN_SHELL="$(getent passwd "$USER" | cut -d: -f7)"
+
+if [[ "$CURRENT_LOGIN_SHELL" != "$ZSH_BIN" ]]; then
+    if sudo chsh -s "$ZSH_BIN" "$USER"; then
+        info "Default shell set to zsh. Takes effect on next login."
+    else
+        warn "Could not change default shell. Run manually: chsh -s $ZSH_BIN"
+    fi
 fi
 
 # ── .zshrc additions ─────────────────────────────────────────────────────────
-ZSHRC="$HOME/.zshrc"
-
 append_if_missing() {
     local marker="$1"; local content="$2"
     grep -qF "$marker" "$ZSHRC" 2>/dev/null || echo -e "$content" >> "$ZSHRC"
@@ -193,7 +254,7 @@ append_if_missing "# bat alias" \
 append_if_missing "# fd alias" \
     '\n# fd alias (fd-find)\nalias fd="fdfind"'
 
-append_if_missing "~/.local/bin" \
+append_if_missing ".local/bin" \
     '\nexport PATH="$HOME/.local/bin:$PATH"'
 
 # =============================================================================

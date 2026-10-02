@@ -7,12 +7,10 @@ The repository currently contains two generations of the same tool:
 
 | | Script | Status |
 |---|---|---|
-| **v1 (monolith)** | [`setup/dev-setup.sh`](setup/dev-setup.sh) | Complete and functional — a single self-contained script. |
-| **v2 (modular)** | [`main.sh`](main.sh) + [`lib/`](lib) + [`setup/`](setup) | Work in progress — a refactor of v1 into small, composable modules. |
+| **v1 (monolith)** | `setup/dev-setup.sh` | Legacy, superseded — kept for reference until the v2 port finishes. |
+| **v2 (modular)** | [`main.sh`](main.sh) + [`lib/`](lib) + [`setup/`](setup) | The one to run. A refactor of v1 into small, composable modules. |
 
-If you just want a working machine setup today, use `setup/dev-setup.sh`. If you
-want to contribute to the project, the interesting work is in `main.sh`,
-`lib/` and `setup/`.
+Run `main.sh`. The interesting work is in `main.sh`, `lib/` and `setup/`.
 
 ---
 
@@ -28,12 +26,9 @@ want to contribute to the project, the interesting work is in `main.sh`,
 ```bash
 git clone git@github.com:cvetan/linux-utils.git
 cd linux-utils
-chmod +x setup/dev-setup.sh main.sh
-./setup/dev-setup.sh
+chmod +x main.sh
+./main.sh
 ```
-
-To run the in-progress v2 instead — same eight steps, with a requirements
-preflight before the first one — use `./main.sh`. See [v2 status](#v2-status).
 
 The run takes a few minutes. Every command's raw output is written to a timestamped
 log file:
@@ -101,13 +96,19 @@ A few changes need a new login to take effect:
 
 ## v2 status
 
-`main.sh` covers the same eight steps as v1, but only two are ported:
+`main.sh` covers the same eight steps as v1, but only three are ported:
 
 | # | Step | v2 |
 |---|---|---|
 | 1 | System update & base packages | [`setup/base_packages.sh`](setup/base_packages.sh) |
 | 2 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
-| 3–8 | Zsh, nvm, PHP, SDKMAN, Git, SSH | stubbed sections in `main.sh`, no code yet |
+| 3 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
+| 4–8 | nvm, PHP, SDKMAN, Git, SSH | stubbed sections in `main.sh`, no code yet |
+
+Plus one module that is **not** one of the eight: [`setup/vscode.sh`](setup/vscode.sh)
+installs Visual Studio Code from Microsoft's apt repository. It is a complete
+module but is not called from `main.sh` — uncomment the `# vscode_setup` line
+after step 3 to opt in, or call `vscode_setup` yourself after sourcing the libs.
 
 The v2-only features — the [preflight](#before-it-runs), the `ERR` trap,
 `SETUP_ASSUME_YES`, `SOFT_PREFLIGHT` — do not exist in v1; v1 has no
@@ -121,28 +122,33 @@ confirmation prompt at all.
   `gnome-shell-extension-manager`, `solaar`, `deluge`, `mpv`, `celluloid`,
   `libreoffice`, `grub-customizer`, `pipx`, plus `ubuntu-restricted-extras`.
   It does **not** install `jq`, `ripgrep`, `fzf`, `tree`, `bat`, `tmux`, or the
-  `cat` / `fd` aliases — v1 does. Sections 3–8, once ported, are where the rest
-  of v1's set would come back.
+  `cat` / `fd` aliases — v1 does. Sections 4–8, once ported, are where the rest
+  of v1's set would come back. Note that the `bat` and `fd` aliases in
+  `setup/zsh.sh` assume `batcat` and `fdfind`, which step 1 still does not
+  install.
 - **Docker's repo is added in deb822 format.** v2 writes
   `/etc/apt/sources.list.d/docker.sources` and keeps the upstream key
   ASCII-armored as `docker.asc`, referenced by `Signed-By`. v1 dearmors it into
   `docker.gpg` and writes a classic one-line `docker.list`. Both resolve to the
   same `download.docker.com/linux/ubuntu` repository, so either is fine on its
   own; installing v1 then v2 leaves the deb822 file behind.
+- **Powerlevel10k runs in `powerline` mode, not `nerdfont-complete`,** to match
+  the `fonts-powerline` that step 1 actually installs. v1 used
+  `nerdfont-complete`, which needs a Nerd Font and renders boxes without one.
 
 ### Known gaps in v2
 
-- `setup/base_packages.sh` calls `add-apt-repository` but never installs
-  `software-properties-common`, which provides that command. v1 installs it.
-  It is preinstalled on a stock Ubuntu image, but not on a minimal one.
 - `setup/docker.sh` adds you to the `docker` group only inside the install
   branch. On a machine that already has Docker, the group is never touched, so
   `docker` keeps asking for `sudo`.
-- `add_custom_repositories` has no `command_exists`-style guard, and
-  `run_or_die` is called unconditionally, so a re-run of v2 re-adds every PPA
-  and reinstalls the whole base set. Harmless — `apt install` on an installed
-  package is a no-op — but slower than v1's guarded steps, and the only step in
-  either generation that is not re-runnable cheaply.
+- `add_custom_repositories` re-adds every PPA and reinstalls the whole base set
+  on each run. Harmless — `apt install` on an installed package is a no-op, and
+  `add-apt-repository` on an already-added PPA is a no-op — but slower than v1's
+  guarded steps, and the only step in either generation that is not re-runnable
+  cheaply.
+- Of the seven PPAs, only two supply a package that is not in the Ubuntu archive
+  (`gdm-settings` and `grub-customizer`). The other five are kept for newer
+  builds of packages the archive already has; dropping them is a separate call.
 
 ## Repository layout
 
@@ -156,10 +162,11 @@ linux-utils/
 │   ├── utils.sh         # command_exists, append_if_missing
 │   └── preflight.sh     # machine detection, requirement checks, confirmation
 └── setup/
-    ├── dev-setup.sh     # v1 monolith — the full, working implementation
+    ├── dev-setup.sh     # v1 monolith — legacy, superseded
     ├── base_packages.sh # v2: apt repositories + base packages
     ├── docker.sh        # v2: Docker Engine from the official repo
-    └── test-php.sh      # v2: scratch script for testing lib/ui.sh output
+    ├── zsh.sh           # v2: zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
+    └── vscode.sh        # v2: VS Code — not called from main.sh, opt in
 ```
 
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only
@@ -361,13 +368,35 @@ A few rules keep the layering intact:
 
 ## Notes
 
-- **Docker group:** `usermod -aG docker "$USER"` grants root-equivalent access. Only
-  do this on a machine you fully trust.
+- **Docker group:** `usermod -aG docker "$(id -un)"` grants root-equivalent access.
+  Only do this on a machine you fully trust. `id -un` rather than `$USER` because
+  `$USER` is unset under `env -i`, which is fatal with `set -u`.
 - **Third-party PPAs:** v2's `setup/base_packages.sh` adds seven personal package
   archives (LibreOffice, Solaar, mpv, deadbeef, gnome-mpv, grub-customizer, GDM
   settings) and installs packages straight out of them, so dropping the `add-apt-repository`
   lines means also dropping the packages that only exist there. v1 adds none of
   these; its only third-party archive is Ondřej's PHP PPA, in section 5.
+- **A PPA without a suite for your Ubuntu is skipped, never fatal.** `apt update`
+  exits 100 on any configured repository it cannot fetch, so one dead PPA would
+  otherwise abort the whole run at step 1 — which is exactly what
+  `ppa:ubuntuhandbook1/mpv` did on Ubuntu 26.04, having published nothing for
+  `resolute`. Each PPA is probed with a `HEAD` request against its `Release` file
+  first, and skipped with a warning if there is no suite for
+  `$VERSION_CODENAME`. Don't "simplify" this back to bare `add-apt-repository`
+  lines; it will break again on the next Ubuntu release.
+- **The `ERR` trap stays out of subshells.** `set -E` makes it fire inside
+  `$(...)` too, where `exit` only ends the subshell — so a handler that reported
+  and exited there would print a trace for a failure the enclosing command then
+  goes on to report as success. That is how `info "Docker already installed
+  ($(docker --version))"` printed a bogus error and exited 0 against a broken
+  `docker` shim. `_on_error` now returns early when `BASH_SUBSHELL > 0`. The
+  consequence to remember: **a call site that puts a fallible command in a
+  command substitution discards the failure**, so it needs its own `||` fallback
+  (`docker.sh`, `zsh.sh` and `vscode.sh` all do).
+- **The spinner is a no-op without a TTY.** Its frames are newline-less writes
+  that only make sense when a terminal re-renders the line; piped to a file,
+  stdout is block-buffered and the frames flush after the following output,
+  landing in the middle of the next section.
 - **Shell options live in the entrypoint.** `set -e` inside a sourced file does
   not reliably enable errexit, which is why `main.sh` sets it and the libraries
   do not. `set -E` is there so the `ERR` trap also fires for failures inside

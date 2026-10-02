@@ -13,6 +13,21 @@ _setup_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_setup_dir/../lib/ui.sh"
 source "$_setup_dir/../lib/utils.sh"
 
+# Docker's own codename and architecture, resolved once. `UBUNTU_CODENAME` is
+# set by /etc/os-release on Debian derivatives but not on plain Ubuntu, hence the
+# fallback to VERSION_CODENAME.
+_docker_suite() {
+    local codename=''
+    if [[ -r /etc/os-release ]]; then
+        codename="$(
+            set +u
+            . /etc/os-release 2>/dev/null >/dev/null || true
+            printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+        )"
+    fi
+    printf '%s' "$codename"
+}
+
 remove_old_docker() {
     local pkg
     for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
@@ -31,7 +46,7 @@ add_docker_repo() {
     sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/ubuntu
-Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Suites: $(_docker_suite)
 Components: stable
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc
@@ -49,12 +64,20 @@ docker_setup() {
     section 'Docker Engine installation'
 
     if command_exists docker; then
-        info "Docker already installed ($(docker --version)). Skipping."
+        # `command -v` only proves the binary is on PATH, not that it works — a
+        # Docker Desktop WSL shim sits on PATH and exits non-zero. Ask it for a
+        # version and fall back rather than letting the substitution swallow the
+        # failure, which is what a bare $(docker --version) does here.
+        local version
+        version="$(docker --version 2>/dev/null || printf 'version unavailable')"
+        info "Docker already installed ($version). Skipping."
     else
         run_or_die 'Removing old Docker packages' remove_old_docker
         run_or_die 'Adding Docker repository'     add_docker_repo
         run_or_die 'Installing Docker packages'   install_docker_packages
-        run_or_die 'Adding user to docker group'  sudo usermod -aG docker "$USER"
+        # id -un, not $USER: $USER is unset under `env -i`, which is fatal with
+        # `set -u`.
+        run_or_die 'Adding user to docker group'  sudo usermod -aG docker "$(id -un)"
         info 'Docker engine installed. Log out and back in for group changes to apply.'
     fi
 }

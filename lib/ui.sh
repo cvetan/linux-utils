@@ -78,8 +78,18 @@ step()    { printf '  %s›%s  %s\n' "$BLUE" "$NC" "$*"; }
 _SPINNER_PID=''
 _SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
+# No TTY, no spinner. The frames are written without a newline and only make
+# sense when a terminal re-renders the line; piped into a file or a pager stdout
+# is block-buffered, so the frames flush *after* the following output and land
+# interleaved with it — stray `⠋ Adding base packages` fragments in the middle of
+# the next section. spinner_start is a no-op there and spinner_stop a no-op too.
+spinner_supported() { [[ -t 1 ]]; }
+
 spinner_start() {
     local msg="${1:-}"
+
+    spinner_supported || return 0
+
     (
         local i=0
         while true; do
@@ -95,15 +105,17 @@ spinner_start() {
 
 spinner_stop() {
     local label="${1:-}"
+
     if [[ -n "${_SPINNER_PID:-}" ]]; then
         kill "$_SPINNER_PID" 2>/dev/null || true
         wait "$_SPINNER_PID" 2>/dev/null || true
         _SPINNER_PID=''
+        # Only erase the line if we actually drew one.
+        printf '\r\033[2K' || true
     fi
-    printf '\r\033[2K' || true
-    if [[ -n "$label" ]]; then
-        info "$label"
-    fi
+
+    [[ -n "$label" ]] && info "$label"
+    return 0
 }
 
 # ── Inline markdown ───────────────────────────────────────────────────────────
