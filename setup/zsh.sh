@@ -32,9 +32,14 @@ install_oh_my_zsh() {
 
     # ZSH is passed explicitly rather than inherited: an exported ZSH pointing
     # somewhere else would make the installer refuse to run.
+    #
+    # pipefail is set by main.sh for THIS shell, not for the `bash -c` launched
+    # by `run`: without it a failed curl is masked by `sh` exiting 0 on empty
+    # input, and an empty install "succeeds" — the same guard install_sdkman
+    # uses in setup/sdkman.sh.
     run_or_die 'Installing Oh-My-Zsh' env \
         "ZSH=$_OMZ_DIR" RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
-        bash -c 'curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | sh -s -- --unattended'
+        bash -c 'set -o pipefail; curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh | sh -s -- --unattended'
 }
 
 # ── Theme + plugins ──────────────────────────────────────────────────────────
