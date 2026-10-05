@@ -163,3 +163,40 @@ prompt_yes_no() {
         esac
     done
 }
+
+# ── prompt_choice "question" default item ... ────────────────────────────────
+# Numbered menu drawn on stderr, the chosen item printed on stdout, so a caller
+# can capture it with $(...) and still see the menu. `default` is a 1-based index
+# used when the user presses Enter. Deliberately policy-free like prompt_yes_no:
+# it always reads the terminal — see `choose` in lib/preflight.sh for the TTY/CI
+# handling. Returns 1 on EOF.
+prompt_choice() {
+    local prompt="${1:-Select?}" default="${2:-1}" reply='' item i=0
+    shift 2
+    local -a items=( "$@" )
+    (( ${#items[@]} > 0 )) || return 1
+    (( default >= 1 && default <= ${#items[@]} )) || default=1
+
+    {
+        printf '  %s›%s  %s%s%s\n' "$CYAN" "$NC" "$BOLD" "$prompt" "$NC"
+        for item in "${items[@]}"; do
+            i=$(( i + 1 ))
+            if (( i == default )); then
+                printf '  %s%2d)%s %s %s(default)%s\n' \
+                    "$CYAN" "$i" "$NC" "$item" "$YELLOW" "$NC"
+            else
+                printf '  %s%2d)%s %s\n' "$CYAN" "$i" "$NC" "$item"
+            fi
+        done
+    } >&2
+
+    while true; do
+        read -r -p "  ${CYAN}›${NC}  ${BOLD}${prompt}${NC} [${default}] " reply || return 1
+        reply="${reply:-$default}"
+        if [[ "$reply" =~ ^[0-9]+$ ]] && (( reply >= 1 && reply <= ${#items[@]} )); then
+            printf '%s\n' "${items[reply-1]}"
+            return 0
+        fi
+        warn "enter a number between 1 and ${#items[@]}"
+    done
+}

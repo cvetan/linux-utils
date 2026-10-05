@@ -8,9 +8,13 @@
 #
 # With no release arguments it tests the default (26.04). Each release is built
 # once into linux-utils-test:<release> and run in a fresh `docker run --rm`
-# container with the repository mounted read-only at /work. The image is never
-# modified, so a second run starts from the same pristine filesystem — the
-# sandbox is disposable by construction.
+# container from a frozen snapshot of the repository mounted read-only at /work.
+# The image is never modified, so a second run starts from the same pristine
+# filesystem — the sandbox is disposable by construction.
+#
+# The snapshot matters: a live bind-mount can be rewritten under the container's
+# feet by an editor and make bash execute a half-read line. Each invocation
+# copies the working tree once, up front, and every release runs from that copy.
 #
 # Environment:
 #   RUNS   Number of times to run main.sh inside the container (default 1).
@@ -57,9 +61,34 @@ require_docker() {
     }
 }
 
+# ── Repository snapshot ───────────────────────────────────────────────────────
+# A run mounts a frozen copy of the working tree, not the live one. A live
+# bind-mount is read-only to the container, but the host can still rewrite it
+# mid-run — and bash executing a script edited under it reads garbage (a
+# half-written comment line becomes a command). The snapshot removes that race.
+__snapshot_dir=''
+
+_cleanup_snapshot() {
+    if [[ -n "$__snapshot_dir" && -d "$__snapshot_dir" ]]; then
+        rm -rf "$__snapshot_dir"
+    fi
+}
+trap _cleanup_snapshot EXIT
+
+# snapshot_repo — copy the working tree to a fresh temp directory and print it.
+snapshot_repo() {
+    local dir
+    dir="$(mktemp -d "${TMPDIR:-/tmp}/linux-utils-test.XXXXXX")" || return 1
+    tar -C "$__repo_root" \
+        --exclude=.git --exclude=build --exclude=dist --exclude='*.log' \
+        -cf - . | tar -C "$dir" -xf - \
+        || { rm -rf "$dir"; return 1; }
+    printf '%s' "$dir"
+}
+
 # run_release release runs — build the image, then run it `runs` times in one
-# container. --rm makes the container disposable; the -v mount is read-only so
-# the working tree cannot be touched.
+# container. --rm makes the container disposable; the snapshot is mounted
+# read-only, so neither the working tree nor the snapshot can be touched.
 run_release() {
     local release="$1" runs="$2"
     local image="$IMAGE_PREFIX:$release"
@@ -76,7 +105,7 @@ run_release() {
     run "Running main.sh on ubuntu:$release" docker run \
         ${run_flags[@]+"${run_flags[@]}"} \
         -e "RUNS=$runs" \
-        -v "$__repo_root:/work:ro" \
+        -v "$__snapshot_dir:/work:ro" \
         "$image" \
         bash -c 'for (( i = 1; i <= RUNS; i++ )); do
                      echo "=== run $i/$RUNS ==="
@@ -117,6 +146,11 @@ main() {
     }
 
     require_docker || return 1
+
+    __snapshot_dir="$(snapshot_repo)" || {
+        error 'could not snapshot the repository'
+        return 1
+    }
 
     banner 'CONTAINER TEST'
 

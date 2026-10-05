@@ -257,6 +257,26 @@ confirm() {
     prompt_yes_no "$prompt"
 }
 
+# ── choose "prompt" default item ... ──────────────────────────────────────────
+# A selection with the same non-interactive policy as confirm: with
+# SETUP_ASSUME_YES=1, or no terminal, it takes `default` (1-based) without
+# reading. The chosen item is printed to stdout; the note goes to stderr so a
+# caller's $(choose ...) never captures it. Returns 1 only when there is nothing
+# to choose from.
+choose() {
+    local prompt="${1:?prompt required}" default="${2:-1}"; shift 2
+    local -a items=( "$@" )
+    (( ${#items[@]} > 0 )) || { error 'choose: no items to choose from'; return 1; }
+    (( default >= 1 && default <= ${#items[@]} )) || default=1
+
+    if [[ "${SETUP_ASSUME_YES:-0}" == "1" || ! ( -t 0 && -t 1 ) ]]; then
+        step "$prompt — ${items[default-1]} (auto-selected)" >&2
+        printf '%s\n' "${items[default-1]}"
+        return 0
+    fi
+    prompt_choice "$prompt" "$default" "${items[@]}"
+}
+
 # ── preflight [file] ──────────────────────────────────────────────────────────
 # show_requirements → check_requirements → confirm. Returns 1 if a check failed,
 # 130 if the user declined. Reports failed checks as warnings instead when

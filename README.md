@@ -114,9 +114,11 @@ extracted copy.
 [`Dockerfile`](Dockerfile) builds a disposable sandbox — a bare Ubuntu, a
 non-root `tester` with passwordless `sudo`, and a `policy-rc.d` that keeps apt
 maintainer scripts from trying to start services in a container with no init.
-The repository is **not** baked in: `scripts/docker-test.sh` mounts it read-only
-at `/work`, so the same image always runs the current working tree and every run
-starts from a clean filesystem.
+The repository is **not** baked in: `scripts/docker-test.sh` takes a frozen
+snapshot of the working tree and mounts that read-only at `/work`. Each
+invocation copies the tree once, up front, so a run is reproducible and cannot
+be corrupted by an edit made while it is in flight, and every run starts from a
+clean filesystem.
 
 ```bash
 scripts/docker-test.sh              # 26.04, the default
@@ -204,7 +206,8 @@ of them:
 | 2 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
 | 3 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
 | 4 | Visual Studio Code (not a v1 step) | [`setup/vscode.sh`](setup/vscode.sh) |
-| 5–9 | nvm, PHP, SDKMAN, Git, SSH | stubbed sections in `main.sh`, no code yet |
+| 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
+| 5–6, 8–9 | nvm, PHP, Git, SSH | stubbed sections in `main.sh`, no code yet |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
@@ -301,6 +304,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `bullet "marker" "text"` | One list line with inline markdown rendered. |
 | `md_inline "text"` | Terminal rendering of `` `code` `` (bold cyan) and `**bold**`. |
 | `prompt_yes_no "question"` | Ask a `[Y/n]` question, return 0 for yes. Policy-free — no TTY or CI handling. |
+| `prompt_choice "question" default item …` | Numbered selection menu on stderr; the chosen item on stdout. Policy-free — no TTY or CI handling. |
 | `UI_WIDTH` | Shared width, so banners and section rules line up. |
 
 ### `lib/log.sh` — the run log
@@ -326,6 +330,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `check_requirements [file]` | Verify the machine against every requirement, printing the observed value next to the verdict. Returns 1 if any check fails. |
 | `preflight [file]` | `show_requirements` → `check_requirements` → `confirm`. Returns 1 if a check failed, 130 if the user declined. `main.sh` turns that into an exit. |
 | `confirm "prompt"` | `prompt_yes_no` plus the auto-approve policy: `SETUP_ASSUME_YES=1`, or no TTY. |
+| `choose "prompt" default item …` | `prompt_choice` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`. |
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
 
@@ -471,8 +476,8 @@ something_setup() {
 ```
 
 Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call. Sections 5–9 (nvm, PHP, SDKMAN, Git, SSH)
-are stubbed out and waiting to be ported from `setup/dev-setup.sh`.
+section for the `*_setup` call. Sections 5, 6, 8 and 9 (nvm, PHP, Git, SSH)
+are still stubbed out and waiting to be ported from `setup/dev-setup.sh`.
 
 A few rules keep the layering intact:
 

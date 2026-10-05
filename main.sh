@@ -34,6 +34,7 @@ source "$__repo_root/setup/base_packages.sh"
 source "$__repo_root/setup/docker.sh"
 source "$__repo_root/setup/zsh.sh"
 source "$__repo_root/setup/vscode.sh"
+source "$__repo_root/setup/sdkman.sh"
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
 # A trap is a process-wide setting, so it belongs to the entrypoint. `set -E`
@@ -115,6 +116,7 @@ vscode_setup
 # =============================================================================
 # 7. SDKMAN + JAVA
 # =============================================================================
+sdkman_setup
 
 
 # =============================================================================
