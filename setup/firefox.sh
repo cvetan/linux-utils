@@ -3,7 +3,8 @@
 # setup/firefox.sh — Firefox as a deb instead of Ubuntu's snap
 # =============================================================================
 # A step of main.sh, not a standalone program: it draws with lib/ui.sh and calls
-# run_or_die, which main.sh defines. `confirm` comes from lib/preflight.sh, which
+# run_or_die, which main.sh defines. `confirm` comes from lib/preflight.sh, and
+# `os_codename` / `ppa_suite_available` from setup/base_packages.sh, both of which
 # main.sh sources before the step modules (setup/xbox.sh relies on the same).
 #
 # Ubuntu ships Firefox as a snap. This step is for the machine that wants the
@@ -12,8 +13,9 @@
 # archive and installs `firefox` from it.
 #
 # It is gated hard, because it is destructive and pointless on most machines:
-# it runs only when `snap list firefox` finds the snap AND no real deb build is
-# installed. Ubuntu's `1:1snap…` transition package does NOT count as a deb —
+# it runs only when `snap list firefox` finds the snap. With no real deb it does
+# the swap; with a real deb already installed it only offers to remove the
+# leftover snap. Ubuntu's `1:1snap…` transition package does NOT count as a deb —
 # it is what pulls the snap in, so counting it would make this step never run on
 # a stock desktop. The step still asks before touching anything; INSTALL_FIREFOX
 # overrides the prompt (1 installs, 0 skips) exactly like INSTALL_XBOX.
@@ -45,22 +47,6 @@ _FIREFOX_APT_CONF='/etc/apt/apt.conf.d/51unattended-upgrades-firefox'
 
 # ── Detection ─────────────────────────────────────────────────────────────────
 
-# _firefox_codename — the Ubuntu suite name, e.g. `noble`. UBUNTU_CODENAME first:
-# /etc/os-release sets it on derivatives too (Linux Mint, Pop!_OS, Zorin), where
-# VERSION_CODENAME is the derivative's own codename and would match nothing on
-# Launchpad. Empty when /etc/os-release is unreadable.
-_firefox_codename() {
-    local codename=''
-    if [[ -r /etc/os-release ]]; then
-        codename="$(
-            set +u
-            . /etc/os-release 2>/dev/null >/dev/null || true
-            printf '%s' "${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
-        )"
-    fi
-    printf '%s' "$codename"
-}
-
 # _firefox_snap_installed — true when snapd is present and carries Firefox. The
 # daemon may be absent or unreachable (containers, some servers), in which case
 # snap fails and there is nothing to replace.
@@ -83,27 +69,14 @@ _firefox_deb_installed() {
     return 0
 }
 
-# _firefox_ppa_suite_available — does the PPA publish a suite for the running
-# release? A HEAD request against its Release file is enough; the index is never
-# downloaded.
-_firefox_ppa_suite_available() {
-    local codename
-    codename="$(_firefox_codename)"
-    [[ -n "$codename" ]] || return 1
-    command_exists curl || return 1
-    curl -fsI --max-time 15 \
-        "https://ppa.launchpadcontent.net/${_FIREFOX_PPA}/ubuntu/dists/${codename}/Release" \
-        >/dev/null 2>&1
-}
-
 # ── Install ───────────────────────────────────────────────────────────────────
 
 remove_firefox_snap() {
     _sudo snap remove firefox
 }
 
-# Purge both the snap transition package and, on a re-run that got this far, any
-# half-installed deb. apt exits 0 when the package is absent.
+# Purge the snap-transition `firefox` package. apt exits 0 when it is absent, so
+# this is also safe if a previous attempt already removed it.
 purge_firefox_deb() {
     _sudo apt purge -y firefox
 }
@@ -113,12 +86,14 @@ add_firefox_ppa() {
 }
 
 # Pin the PPA above the Ubuntu archive so `apt install firefox` cannot fall back
-# to the snap transition package. `o=LP-PPA-mozillateam` is Launchpad's origin
-# for the PPA; it is derived from the PPA owner rather than hardcoded twice.
+# to the snap transition package. Scoped to `firefox*` (the build plus its locale
+# packages) rather than `*`, so no unrelated package is ever dragged to the PPA.
+# `o=LP-PPA-mozillateam` is Launchpad's origin for the PPA; it is derived from
+# the PPA owner rather than hardcoded twice.
 pin_firefox_ppa() {
     local owner="${_FIREFOX_PPA%%/*}"
     _sudo tee "$_FIREFOX_PREF_FILE" >/dev/null <<EOF
-Package: *
+Package: firefox*
 Pin: release o=LP-PPA-${owner}
 Pin-Priority: 1001
 EOF
@@ -128,7 +103,7 @@ EOF
 # deb keep flowing without manual approval. The suite is resolved at run time.
 allow_firefox_unattended_upgrades() {
     local codename owner
-    codename="$(_firefox_codename)"
+    codename="$(os_codename)"
     owner="${_FIREFOX_PPA%%/*}"
     _sudo tee "$_FIREFOX_APT_CONF" >/dev/null <<EOF
 Unattended-Upgrade::Allowed-Origins:: "LP-PPA-${owner}:${codename}";
@@ -145,7 +120,19 @@ install_firefox_deb() {
 
 # ── firefox_setup ─────────────────────────────────────────────────────────────
 firefox_setup() {
+    local forced=0
+
     section 'Firefox (Mozilla APT build)'
+
+    case "${INSTALL_FIREFOX}" in
+        0|no|false)
+            info 'Firefox step disabled (INSTALL_FIREFOX=0).'
+            return 0
+            ;;
+        1|yes|true)
+            forced=1
+            ;;
+    esac
 
     if ! _firefox_snap_installed; then
         info 'No Firefox snap detected. Skipping.'
@@ -153,28 +140,28 @@ firefox_setup() {
     fi
 
     if _firefox_deb_installed; then
-        info 'Firefox is already installed as a deb. Skipping.'
+        # A real deb build is already in place, and the snap is still here (the
+        # gate above) — the swap happened once, or the deb was installed by hand.
+        # There is nothing to install, so only offer to remove the redundant snap;
+        # never run the purge below, which would remove the real deb.
+        if (( forced )) || confirm 'Firefox is already installed as a deb — remove the leftover snap?'; then
+            run 'Removing the leftover Firefox snap' remove_firefox_snap \
+                || warn 'Could not remove the leftover Firefox snap — see the log'
+        else
+            info 'Keeping the Firefox snap alongside the deb.'
+        fi
         return 0
     fi
 
-    case "${INSTALL_FIREFOX}" in
-        0|no|false)
-            info 'Firefox snap detected — skipping the deb install (INSTALL_FIREFOX=0).'
+    if (( ! forced )); then
+        if ! confirm 'Firefox is installed as a snap — replace it with the Mozilla APT (deb) build?'; then
+            warn 'Skipping the Firefox deb install.'
             return 0
-            ;;
-        1|yes|true)
-            : # proceed without asking
-            ;;
-        *)
-            if ! confirm 'Firefox is installed as a snap — replace it with the Mozilla APT (deb) build?'; then
-                warn 'Skipping the Firefox deb install.'
-                return 0
-            fi
-            ;;
-    esac
+        fi
+    fi
 
-    if ! _firefox_ppa_suite_available; then
-        warn "Skipping the Firefox deb install — the ${_FIREFOX_PPA} PPA has no suite for '$(_firefox_codename)'"
+    if ! ppa_suite_available "$_FIREFOX_PPA"; then
+        warn "Skipping the Firefox deb install — the ${_FIREFOX_PPA} PPA has no suite for '$(os_codename)'"
         return 0
     fi
 

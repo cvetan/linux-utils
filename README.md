@@ -345,9 +345,10 @@ is reported and skipped, a differing one is left alone and warned about. Set
 [`docs/ssh-keys.md`](docs/ssh-keys.md) for the bundle format and worked examples.
 
 [`setup/firefox.sh`](setup/firefox.sh) swaps Ubuntu's Firefox snap for the Mozilla
-team's apt build. It acts only when `snap list firefox` finds the snap and dpkg
-reports no real deb — Ubuntu's `1:1snap…` transition package does not count,
-because it is what pulls the snap in — and it asks first. `INSTALL_FIREFOX=1`
+team's apt build. It acts only when `snap list firefox` finds the snap — Ubuntu's
+`1:1snap…` transition package does not count as a real deb, because it is what
+pulls the snap in — and it asks first. If a real deb is already installed it only
+offers to remove the leftover snap. `INSTALL_FIREFOX=1`
 installs without asking, `INSTALL_FIREFOX=0` skips. It removes the snap, purges
 the transition package, adds `ppa:mozillateam/ppa`, pins that archive at
 priority `1001` so it wins over the Ubuntu archive, records it for unattended
