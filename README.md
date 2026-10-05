@@ -191,7 +191,16 @@ GB and several minutes per release.
    and nothing is fetched from the network. Set `SSH_KEYS_BUNDLE` (a directory,
    `.tar.gz`, `.tar` or `.zip`) to install from an offline bundle instead — the
    reproducible, non-interactive path. See [`setup/ssh.sh`](setup/ssh.sh).
-10. **NVIDIA drivers** (optional) — only runs when an NVIDIA display controller
+10. **Xbox Wireless Adapter** (optional) — only runs when the Microsoft dongle is
+    attached; on any other machine it reports the skip and does nothing. The
+    dongle is found dynamically (Microsoft vendor `045e`, identified by its
+    product string or the `mt76x2u` WiFi driver it binds to), not from a fixed
+    product-ID list, and the udev rule is generated from the `idProduct`(s)
+    actually found. It asks before doing anything, then installs a rule that
+    de-authorizes the dongle so Linux leaves it alone and a Windows dual boot
+    keeps its controller pairing. The adapter no longer works on Linux
+    afterwards — that is the point. See [`setup/xbox.sh`](setup/xbox.sh).
+11. **NVIDIA drivers** (optional) — only runs when an NVIDIA display controller
     is detected; on any other machine it reports the skip and does nothing. It
     asks before installing, then installs the **latest proprietary** branch
     (plain `nvidia-driver-<N>`, never `-open` or `-server`) through Ubuntu's
@@ -217,6 +226,8 @@ GIT_CORE_EDITOR="code --wait"          # git commit editor; empty leaves it unse
 SSH_KEYS_BUNDLE=""                     # optional: install keys from an offline bundle
 SSH_KEYS_VERIFY="1"                    # after setup, `ssh -T` each configured host
 SSH_DIR="$HOME/.ssh"                   # where step 9 looks for keys / writes config
+INSTALL_XBOX=""                        # optional: 1 installs, 0 skips, unset prompts (dongle-gated)
+XBOX_DONGLE_IDS=""                     # optional override; empty auto-detects the attached dongle
 INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
 NVIDIA_DRIVER=""                       # empty = latest proprietary; a branch (e.g. 580) pins it; "recommended" defers to Ubuntu
 ```
@@ -239,7 +250,7 @@ A few changes need a new login to take effect:
 
 ## Status
 
-`main.sh` runs all ten steps:
+`main.sh` runs all eleven steps:
 
 | # | Step | Module |
 |---|---|---|
@@ -252,7 +263,8 @@ A few changes need a new login to take effect:
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
 | 8 | Git configuration | [`setup/git.sh`](setup/git.sh) |
 | 9 | SSH keys | [`setup/ssh.sh`](setup/ssh.sh) |
-| 10 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
+| 10 | Xbox Wireless Adapter (optional) | [`setup/xbox.sh`](setup/xbox.sh) |
+| 11 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
@@ -324,7 +336,30 @@ is reported and skipped, a differing one is left alone and warned about. Set
 `SSH_KEYS_VERIFY=1` to `ssh -T` every concrete host afterwards. See
 [`docs/ssh-keys.md`](docs/ssh-keys.md) for the bundle format and worked examples.
 
-[`setup/nvidia.sh`](setup/nvidia.sh) is the only step gated on hardware: it
+[`setup/xbox.sh`](setup/xbox.sh) is a dual-boot fix rather than an install. On a
+Windows + Linux machine, Linux claims the Microsoft Xbox Wireless Adapter on
+every boot, which makes Windows ask to re-pair the controller the next time it
+starts. The step identifies the dongle in sysfs dynamically: any Microsoft USB
+device (`idVendor` `045e`) whose product string names an Xbox adapter, or whose
+interface is bound to the `mt76x2u` WiFi driver the dongle uses. An Xbox
+controller is never caught, because it binds `xpad`/`xone` and its product string
+says "controller". The udev rule is then generated from the `idProduct`(s)
+actually present — a revision we have never seen works without a code change, and
+wired-only machines report the skip.
+
+When a dongle is found, the step asks before writing a rule that de-authorizes it
+the moment it appears (`echo 0 >/sys/$devpath/authorized`), so Linux leaves it
+alone and the Windows pairing survives. It is idempotent, reloads the rules with
+`udevadm control --reload-rules` and `udevadm trigger`, and needs no reboot.
+`INSTALL_XBOX=1` installs without asking and `INSTALL_XBOX=0` skips; because
+`INSTALL_XBOX=1` on a machine with no dongle has nothing to derive an ID from,
+`XBOX_DONGLE_IDS="02e6 02fe"` supplies the product IDs explicitly (it overrides
+detection entirely). The trade-off is that the adapter does not work on Linux
+afterwards, so pair the controller once more in Windows after enabling the rule.
+To undo it, remove `/etc/udev/rules.d/99-xbox-wireless-adapter.rules` and reload
+the rules again.
+
+[`setup/nvidia.sh`](setup/nvidia.sh) is the other hardware-gated step: it
 looks for an NVIDIA display controller (PCI vendor `0x10de` with class `0x03xx`,
 read from sysfs so it needs nothing installed) and skips with a message on
 everything else. When a GPU is found and no driver is loaded or installed, it
@@ -380,7 +415,8 @@ linux-utils/
     ├── zsh.sh           # zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
     ├── vscode.sh        # VS Code from Microsoft's apt repository
     ├── sdkman.sh        # SDKMAN + Temurin JDK
-    └── ssh.sh           # adopt ~/.ssh keys + host config, or an offline bundle
+    ├── ssh.sh           # adopt ~/.ssh keys + host config, or an offline bundle
+    └── xbox.sh          # de-authorize the Xbox dongle for a Windows dual boot
 ```
 
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only

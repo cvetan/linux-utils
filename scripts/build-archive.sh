@@ -64,6 +64,7 @@ readonly REQUIRED_FILES=(
     setup/sdkman.sh
     setup/ssh.sh
     setup/vscode.sh
+    setup/xbox.sh
     setup/zsh.sh
 )
 

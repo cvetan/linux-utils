@@ -39,6 +39,7 @@ source "$__repo_root/setup/php.sh"
 source "$__repo_root/setup/sdkman.sh"
 source "$__repo_root/setup/git.sh"
 source "$__repo_root/setup/ssh.sh"
+source "$__repo_root/setup/xbox.sh"
 source "$__repo_root/setup/nvidia.sh"
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
@@ -148,7 +149,18 @@ ssh_setup
 
 
 # =============================================================================
-# 10. NVIDIA DRIVERS (only when an NVIDIA GPU is present)
+# 10. XBOX WIRELESS ADAPTER (only when the adapter is attached)
+# =============================================================================
+# A dual-boot fix, not a driver: when the Microsoft dongle is found it writes a
+# udev rule that de-authorizes it, so Linux leaves it alone and Windows keeps the
+# controller pairing. Skipped entirely when no dongle is attached, so every other
+# machine is unaffected. Runs before the NVIDIA step on purpose, so the step that
+# wants a reboot stays last.
+xbox_setup
+
+
+# =============================================================================
+# 11. NVIDIA DRIVERS (only when an NVIDIA GPU is present)
 # =============================================================================
 # Last on purpose: the driver only takes effect after a reboot, so the run ends
 # with the machine ready to restart. Skipped entirely when no NVIDIA display
