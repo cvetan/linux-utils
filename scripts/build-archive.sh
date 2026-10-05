@@ -59,6 +59,7 @@ readonly REQUIRED_FILES=(
     setup/docker.sh
     setup/git.sh
     setup/node.sh
+    setup/nvidia.sh
     setup/php.sh
     setup/sdkman.sh
     setup/ssh.sh

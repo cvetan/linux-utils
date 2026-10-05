@@ -191,6 +191,12 @@ GB and several minutes per release.
    and nothing is fetched from the network. Set `SSH_KEYS_BUNDLE` (a directory,
    `.tar.gz`, `.tar` or `.zip`) to install from an offline bundle instead — the
    reproducible, non-interactive path. See [`setup/ssh.sh`](setup/ssh.sh).
+10. **NVIDIA drivers** (optional) — only runs when an NVIDIA display controller
+    is detected; on any other machine it reports the skip and does nothing. It
+    asks before installing, then installs the **latest proprietary** branch
+    (plain `nvidia-driver-<N>`, never `-open` or `-server`) through Ubuntu's
+    `ubuntu-drivers` tool, which uses the signed module on Secure Boot systems.
+    A reboot is needed to load it. See [`setup/nvidia.sh`](setup/nvidia.sh).
 
 ## Configuration
 
@@ -211,6 +217,8 @@ GIT_CORE_EDITOR="code --wait"          # git commit editor; empty leaves it unse
 SSH_KEYS_BUNDLE=""                     # optional: install keys from an offline bundle
 SSH_KEYS_VERIFY="1"                    # after setup, `ssh -T` each configured host
 SSH_DIR="$HOME/.ssh"                   # where step 9 looks for keys / writes config
+INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
+NVIDIA_DRIVER=""                       # empty = latest proprietary; a branch (e.g. 580) pins it; "recommended" defers to Ubuntu
 ```
 
 Some settings are arrays edited in place rather than exported — the global
@@ -226,10 +234,12 @@ A few changes need a new login to take effect:
 1. `exec zsh` (or log out and back in) to pick up the shell and SDKMAN setup.
 2. Re-login so the `docker` group membership applies — otherwise `docker` still
    asks for `sudo`.
+3. Reboot if an NVIDIA GPU was present — the driver is installed but only loads
+   on the next boot. Check it with `nvidia-smi` once you are back in.
 
 ## Status
 
-`main.sh` runs all nine steps:
+`main.sh` runs all ten steps:
 
 | # | Step | Module |
 |---|---|---|
@@ -242,6 +252,7 @@ A few changes need a new login to take effect:
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
 | 8 | Git configuration | [`setup/git.sh`](setup/git.sh) |
 | 9 | SSH keys | [`setup/ssh.sh`](setup/ssh.sh) |
+| 10 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
@@ -313,6 +324,19 @@ is reported and skipped, a differing one is left alone and warned about. Set
 `SSH_KEYS_VERIFY=1` to `ssh -T` every concrete host afterwards. See
 [`docs/ssh-keys.md`](docs/ssh-keys.md) for the bundle format and worked examples.
 
+[`setup/nvidia.sh`](setup/nvidia.sh) is the only step gated on hardware: it
+looks for an NVIDIA display controller (PCI vendor `0x10de` with class `0x03xx`,
+read from sysfs so it needs nothing installed) and skips with a message on
+everything else. When a GPU is found and no driver is loaded or installed, it
+asks whether to proceed — `INSTALL_NVIDIA=1` installs without asking,
+`INSTALL_NVIDIA=0` skips without asking — then installs `ubuntu-drivers-common`
+and runs `ubuntu-drivers install nvidia:<branch>`. The branch is the highest
+plain `nvidia-driver-<N>` that `ubuntu-drivers devices` offers: `-open` (NVIDIA
+open kernel modules) and `-server` branches are deliberately not chosen. Pin a
+branch with `NVIDIA_DRIVER=580`, or set `NVIDIA_DRIVER=recommended` to accept
+whatever Ubuntu recommends. The driver only loads on reboot, which is why the
+step runs last.
+
 ### Known gaps
 
 - `add_custom_repositories` re-adds every PPA and reinstalls the whole base set
@@ -351,6 +375,7 @@ linux-utils/
     ├── docker.sh        # Docker Engine from the official repo
     ├── git.sh           # global git identity and defaults
     ├── node.sh          # Node.js + npm from the archive
+    ├── nvidia.sh        # NVIDIA proprietary driver via ubuntu-drivers (GPU-gated)
     ├── php.sh           # PHP CLI from the archive + Composer
     ├── zsh.sh           # zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
     ├── vscode.sh        # VS Code from Microsoft's apt repository
@@ -641,6 +666,14 @@ A few rules keep the layering intact:
   archive package because Ubuntu builds `nodejs` `--without-npm`; it is also what
   provides `npx`. Global packages install into `~/.local` (`NPM_PREFIX`), never
   with sudo.
+- **The NVIDIA driver step is GPU-gated and opt-in.** `setup/nvidia.sh` installs
+  the newest plain `nvidia-driver-<N>` the hardware supports, not the `-open`
+  branch Canonical tends to recommend for Turing and newer. The trade-off: a new
+  branch can drop support for older cards, so `NVIDIA_DRIVER=580` pins one that
+  still does, and `NVIDIA_DRIVER=recommended` hands the choice back to Ubuntu.
+  On a Secure Boot machine, `ubuntu-drivers` installs the signed prebuilt module
+  when one exists; a branch that is only available as DKMS may ask to enrol a key
+  at the next boot, not during the run.
 - **The `ERR` trap stays out of subshells.** `set -E` makes it fire inside
   `$(...)` too, where `exit` only ends the subshell — so a handler that reported
   and exited there would print a trace for a failure the enclosing command then

@@ -39,6 +39,7 @@ source "$__repo_root/setup/php.sh"
 source "$__repo_root/setup/sdkman.sh"
 source "$__repo_root/setup/git.sh"
 source "$__repo_root/setup/ssh.sh"
+source "$__repo_root/setup/nvidia.sh"
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
 # A trap is a process-wide setting, so it belongs to the entrypoint. `set -E`
@@ -144,3 +145,12 @@ git_setup
 # ~/.ssh (permissions + host mapping prompts), install an offline bundle, or skip.
 # No network, and no key is ever overwritten.
 ssh_setup
+
+
+# =============================================================================
+# 10. NVIDIA DRIVERS (only when an NVIDIA GPU is present)
+# =============================================================================
+# Last on purpose: the driver only takes effect after a reboot, so the run ends
+# with the machine ready to restart. Skipped entirely when no NVIDIA display
+# controller is found, so every other machine is unaffected.
+nvidia_setup
