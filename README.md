@@ -138,8 +138,8 @@ GB and several minutes per release.
 
 ## What gets installed
 
-`main.sh` runs the modules below in order. Steps 5, 8 and 9 (nvm, Git and SSH)
-are stubbed out; see [Status](#status).
+`main.sh` runs the modules below in order. Steps 5 and 9 (nvm and SSH) are
+stubbed out; see [Status](#status).
 
 1. **System update & base packages** — `apt update` and `apt upgrade`, the
    `universe` and `multiverse` components, and the third-party PPAs listed under
@@ -171,7 +171,10 @@ are stubbed out; see [Status](#status).
    `~/.local/bin/composer` after a SHA-384 checksum verification.
 7. **SDKMAN + Java** — SDKMAN!, with a Temurin JDK chosen from a menu (or pinned
    with `JAVA_VERSION`).
-8. **Git configuration** — stubbed, no code yet.
+8. **Git configuration** — the global identity (`user.name` / `user.email`,
+   prompted only when not already set), the default branch name (default `main`),
+   `push.default current` and a set of everyday defaults. See
+   [`setup/git.sh`](setup/git.sh).
 9. **SSH keys** — stubbed, no code yet.
 
 ## Configuration
@@ -185,6 +188,10 @@ JAVA_VERSION="21.0.2-tem"   # pin a Temurin JDK; unset offers a menu
 ZSH="$HOME/.oh-my-zsh"      # Oh-My-Zsh install location
 SDKMAN_DIR="$HOME/.sdkman"  # SDKMAN install location
 COMPOSER_BIN="$HOME/.local/bin/composer"
+GIT_USER_NAME="Ada Lovelace"           # non-interactive git identity
+GIT_USER_EMAIL="ada@example.com"
+GIT_DEFAULT_BRANCH="main"              # name for new repositories
+GIT_CORE_EDITOR="code --wait"          # git commit editor; empty leaves it unset
 ```
 
 Some settings are arrays edited in place rather than exported — the global
@@ -202,7 +209,7 @@ A few changes need a new login to take effect:
 
 ## Status
 
-`main.sh` runs six of the nine steps:
+`main.sh` runs seven of the nine steps:
 
 | # | Step | Module |
 |---|---|---|
@@ -212,7 +219,8 @@ A few changes need a new login to take effect:
 | 4 | Visual Studio Code | [`setup/vscode.sh`](setup/vscode.sh) |
 | 6 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
-| 5, 8–9 | nvm, Git, SSH | stubbed sections in `main.sh`, no code yet |
+| 8 | Git configuration | [`setup/git.sh`](setup/git.sh) |
+| 5, 9 | nvm, SSH | stubbed sections in `main.sh`, no code yet |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
@@ -229,6 +237,16 @@ verified against the signature Composer publishes, and the phar is written to
 home). Composer's global bin (`~/.config/composer/vendor/bin`) is appended to
 `.zshrc`. Global packages come from the `_COMPOSER_GLOBAL_PACKAGES` array in the
 module, empty by default — add an entry such as `'phpunit/phpunit'` and re-run.
+
+[`setup/git.sh`](setup/git.sh) sets the global git identity and a handful of
+defaults in `~/.gitconfig`. The identity is only prompted for when it is not
+already configured; `GIT_USER_NAME` and `GIT_USER_EMAIL` supply it
+non-interactively, and in an unattended run without them the field is left
+unset rather than guessed. The default branch is `main` (`GIT_DEFAULT_BRANCH`
+overrides it), the module sets `push.default current` plus
+`push.autoSetupRemote`, `fetch.prune`, `rebase.autosquash`, `rerere`,
+`merge.conflictstyle zdiff3`, `diff.algorithm histogram` and `color.ui auto`,
+and points `core.editor` at `code --wait` when VS Code is present.
 
 ### Known gaps
 
@@ -263,6 +281,7 @@ linux-utils/
 └── setup/
     ├── base_packages.sh # apt repositories + base packages
     ├── docker.sh        # Docker Engine from the official repo
+    ├── git.sh           # global git identity and defaults
     ├── php.sh           # PHP CLI from the archive + Composer
     ├── zsh.sh           # zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
     ├── vscode.sh        # VS Code from Microsoft's apt repository
@@ -297,6 +316,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `md_inline "text"` | Terminal rendering of `` `code` `` (bold cyan) and `**bold**`. |
 | `prompt_yes_no "question"` | Ask a `[Y/n]` question, return 0 for yes. Policy-free — no TTY or CI handling. |
 | `prompt_choice "question" default item …` | Numbered selection menu on stderr; the chosen item on stdout. Policy-free — no TTY or CI handling. |
+| `prompt_input "question" [default]` | Free-text prompt on stderr; the entered value on stdout. Policy-free — no TTY or CI handling. |
 | `UI_WIDTH` | Shared width, so banners and section rules line up. |
 
 ### `lib/log.sh` — the run log
@@ -323,6 +343,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `preflight [file]` | `show_requirements` → `check_requirements` → `confirm`. Returns 1 if a check failed, 130 if the user declined. `main.sh` turns that into an exit. |
 | `confirm "prompt"` | `prompt_yes_no` plus the auto-approve policy: `SETUP_ASSUME_YES=1`, or no TTY. |
 | `choose "prompt" default item …` | `prompt_choice` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`. |
+| `ask "prompt" [default]` | Free text plus the auto-answer policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`; fails when there is no default. |
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
 
@@ -468,7 +489,7 @@ something_setup() {
 ```
 
 Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call. Sections 5, 8 and 9 (nvm, Git, SSH) are still
+section for the `*_setup` call. Sections 5 and 9 (nvm and SSH) are still
 stubbed out.
 
 A few rules keep the layering intact:

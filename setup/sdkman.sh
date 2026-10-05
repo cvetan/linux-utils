@@ -145,5 +145,3 @@ sdkman_setup() {
 
     extend_zshrc
 }
-
-sdkman_setup

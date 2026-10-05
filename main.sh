@@ -36,6 +36,7 @@ source "$__repo_root/setup/zsh.sh"
 source "$__repo_root/setup/vscode.sh"
 source "$__repo_root/setup/php.sh"
 source "$__repo_root/setup/sdkman.sh"
+source "$__repo_root/setup/git.sh"
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
 # A trap is a process-wide setting, so it belongs to the entrypoint. `set -E`
@@ -124,6 +125,7 @@ sdkman_setup
 # =============================================================================
 # 8. GIT CONFIGURATION
 # =============================================================================
+git_setup
 
 
 # =============================================================================

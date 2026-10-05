@@ -57,6 +57,7 @@ readonly REQUIRED_FILES=(
     lib/utils.sh
     setup/base_packages.sh
     setup/docker.sh
+    setup/git.sh
     setup/php.sh
     setup/sdkman.sh
     setup/vscode.sh

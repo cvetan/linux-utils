@@ -200,3 +200,27 @@ prompt_choice() {
         warn "enter a number between 1 and ${#items[@]}"
     done
 }
+
+# ── prompt_input "question" [default] ────────────────────────────────────────
+# Free-text prompt. The prompt is drawn on stderr and the entered value printed
+# on stdout, so a caller captures it with $(...) and still sees the prompt. A
+# bare Enter accepts `default`; with no default the value is required.
+# Deliberately policy-free like the other prompts: it always reads the terminal
+# — see `ask` in lib/preflight.sh for the TTY/CI handling. Returns 1 on EOF.
+prompt_input() {
+    local prompt="${1:-}" default="${2:-}" reply=''
+
+    while true; do
+        if [[ -n "$default" ]]; then
+            read -r -p "  ${CYAN}›${NC}  ${BOLD}${prompt}${NC} ${YELLOW}[${default}]${NC} " reply || return 1
+            reply="${reply:-$default}"
+        else
+            read -r -p "  ${CYAN}›${NC}  ${BOLD}${prompt}${NC} " reply || return 1
+        fi
+        if [[ -n "$reply" ]]; then
+            printf '%s\n' "$reply"
+            return 0
+        fi
+        warn 'a value is required'
+    done
+}
