@@ -1,0 +1,4 @@
+# Build output of scripts/build-archive.sh — regenerate with
+#   ./scripts/build-archive.sh [version] [output-dir]
+build/
+dist/

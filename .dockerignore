@@ -1,0 +1,8 @@
+# Build context for the sandbox image in Dockerfile. The repository is mounted
+# at run time, so none of this needs to reach the daemon — keeping the context
+# small just makes `docker build` faster.
+.git
+.github
+build/
+dist/
+*.log
