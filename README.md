@@ -191,7 +191,13 @@ GB and several minutes per release.
    and nothing is fetched from the network. Set `SSH_KEYS_BUNDLE` (a directory,
    `.tar.gz`, `.tar` or `.zip`) to install from an offline bundle instead — the
    reproducible, non-interactive path. See [`setup/ssh.sh`](setup/ssh.sh).
-10. **Xbox Wireless Adapter** (optional) — only runs when the Microsoft dongle is
+10. **Firefox** (optional) — only runs when Firefox is installed as a snap and no
+    deb build is present; on any other machine it reports the skip and does
+    nothing. It asks before doing anything, then removes the snap, purges the
+    snap-transition package, adds `ppa:mozillateam/ppa` with a `1001` pin so its
+    build is preferred, and installs `firefox` as a deb. See
+    [`setup/firefox.sh`](setup/firefox.sh).
+11. **Xbox Wireless Adapter** (optional) — only runs when the Microsoft dongle is
     attached; on any other machine it reports the skip and does nothing. The
     dongle is found dynamically (Microsoft vendor `045e`, identified by its
     product string or the `mt76x2u` WiFi driver it binds to), not from a fixed
@@ -200,7 +206,7 @@ GB and several minutes per release.
     de-authorizes the dongle so Linux leaves it alone and a Windows dual boot
     keeps its controller pairing. The adapter no longer works on Linux
     afterwards — that is the point. See [`setup/xbox.sh`](setup/xbox.sh).
-11. **NVIDIA drivers** (optional) — only runs when an NVIDIA display controller
+12. **NVIDIA drivers** (optional) — only runs when an NVIDIA display controller
     is detected; on any other machine it reports the skip and does nothing. It
     asks before installing, then installs the **latest proprietary** branch
     (plain `nvidia-driver-<N>`, never `-open` or `-server`) through Ubuntu's
@@ -226,6 +232,7 @@ GIT_CORE_EDITOR="code --wait"          # git commit editor; empty leaves it unse
 SSH_KEYS_BUNDLE=""                     # optional: install keys from an offline bundle
 SSH_KEYS_VERIFY="1"                    # after setup, `ssh -T` each configured host
 SSH_DIR="$HOME/.ssh"                   # where step 9 looks for keys / writes config
+INSTALL_FIREFOX=""                     # optional: 1 installs, 0 skips, unset prompts (snap-gated)
 INSTALL_XBOX=""                        # optional: 1 installs, 0 skips, unset prompts (dongle-gated)
 XBOX_DONGLE_IDS=""                     # optional override; empty auto-detects the attached dongle
 INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
@@ -250,7 +257,7 @@ A few changes need a new login to take effect:
 
 ## Status
 
-`main.sh` runs all eleven steps:
+`main.sh` runs all twelve steps:
 
 | # | Step | Module |
 |---|---|---|
@@ -263,8 +270,9 @@ A few changes need a new login to take effect:
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
 | 8 | Git configuration | [`setup/git.sh`](setup/git.sh) |
 | 9 | SSH keys | [`setup/ssh.sh`](setup/ssh.sh) |
-| 10 | Xbox Wireless Adapter (optional) | [`setup/xbox.sh`](setup/xbox.sh) |
-| 11 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
+| 10 | Firefox (optional) | [`setup/firefox.sh`](setup/firefox.sh) |
+| 11 | Xbox Wireless Adapter (optional) | [`setup/xbox.sh`](setup/xbox.sh) |
+| 12 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
@@ -335,6 +343,19 @@ managed config alone. An existing key is never overwritten — an identical file
 is reported and skipped, a differing one is left alone and warned about. Set
 `SSH_KEYS_VERIFY=1` to `ssh -T` every concrete host afterwards. See
 [`docs/ssh-keys.md`](docs/ssh-keys.md) for the bundle format and worked examples.
+
+[`setup/firefox.sh`](setup/firefox.sh) swaps Ubuntu's Firefox snap for the Mozilla
+team's apt build. It acts only when `snap list firefox` finds the snap — Ubuntu's
+`1:1snap…` transition package does not count as a real deb, because it is what
+pulls the snap in — and it asks first. If a real deb is already installed it only
+offers to remove the leftover snap. `INSTALL_FIREFOX=1`
+installs without asking, `INSTALL_FIREFOX=0` skips. It removes the snap, purges
+the transition package, adds `ppa:mozillateam/ppa`, pins that archive at
+priority `1001` so it wins over the Ubuntu archive, records it for unattended
+upgrades, and installs `firefox` as a deb. The PPA is probed first and skipped
+with a warning if it publishes no suite for the running release, so a dead PPA
+cannot abort the run. To undo, reinstall the snap (`sudo snap install firefox`)
+and remove `/etc/apt/preferences.d/mozilla-firefox`.
 
 [`setup/xbox.sh`](setup/xbox.sh) is a dual-boot fix rather than an install. On a
 Windows + Linux machine, Linux claims the Microsoft Xbox Wireless Adapter on
@@ -408,6 +429,7 @@ linux-utils/
 └── setup/
     ├── base_packages.sh # apt repositories + base packages
     ├── docker.sh        # Docker Engine from the official repo
+    ├── firefox.sh       # Firefox as a deb instead of the snap (snap-gated)
     ├── git.sh           # global git identity and defaults
     ├── node.sh          # Node.js + npm from the archive
     ├── nvidia.sh        # NVIDIA proprietary driver via ubuntu-drivers (GPU-gated)

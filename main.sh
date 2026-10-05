@@ -39,6 +39,7 @@ source "$__repo_root/setup/php.sh"
 source "$__repo_root/setup/sdkman.sh"
 source "$__repo_root/setup/git.sh"
 source "$__repo_root/setup/ssh.sh"
+source "$__repo_root/setup/firefox.sh"
 source "$__repo_root/setup/xbox.sh"
 source "$__repo_root/setup/nvidia.sh"
 
@@ -149,7 +150,18 @@ ssh_setup
 
 
 # =============================================================================
-# 10. XBOX WIRELESS ADAPTER (only when the adapter is attached)
+# 10. FIREFOX (only when installed as a snap and no deb is present)
+# =============================================================================
+# Ubuntu ships Firefox as a snap. This step is for a machine that wants the
+# Mozilla team's apt build instead: only when `snap list firefox` finds the snap
+# and dpkg reports no real deb does it ask, then swap them, pin the PPA and
+# install the deb. Skipped entirely everywhere else, so every other machine is
+# unaffected. Runs after SSH and before the hardware-gated steps.
+firefox_setup
+
+
+# =============================================================================
+# 11. XBOX WIRELESS ADAPTER (only when the adapter is attached)
 # =============================================================================
 # A dual-boot fix, not a driver: when the Microsoft dongle is found it writes a
 # udev rule that de-authorizes it, so Linux leaves it alone and Windows keeps the
@@ -160,7 +172,7 @@ xbox_setup
 
 
 # =============================================================================
-# 11. NVIDIA DRIVERS (only when an NVIDIA GPU is present)
+# 12. NVIDIA DRIVERS (only when an NVIDIA GPU is present)
 # =============================================================================
 # Last on purpose: the driver only takes effect after a reboot, so the run ends
 # with the machine ready to restart. Skipped entirely when no NVIDIA display
