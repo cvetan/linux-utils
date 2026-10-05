@@ -5,9 +5,7 @@
 # A step of main.sh, not a standalone program: it draws with lib/ui.sh and runs
 # commands with run_or_die, which main.sh defines.
 #
-# Not one of the eight steps main.sh covers, and deliberately not called from it:
-# `vscode_setup` is wired up and ready, but left opt-in (see the commented call
-# site in main.sh).
+# Called from main.sh as step 4; remove that call to leave it out.
 
 # ── Guard against double sourcing ─────────────────────────────────────────────
 [[ -n "${_VSCODE_SH_LOADED:-}" ]] && return

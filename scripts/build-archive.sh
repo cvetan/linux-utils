@@ -28,8 +28,7 @@
 #     resolves its own root from BASH_SOURCE and lib/preflight.sh reads
 #     README.md from one level above lib/, so the archive has to carry exactly
 #     that layout — and README.md is not decoration, a missing one is a silently
-#     degraded preflight at run time. setup/dev-setup.sh (v1) stays out: it is
-#     superseded, and its config block is a wall of placeholder values.
+#     degraded preflight at run time.
 #
 #   * The build never runs the setup. The archive is extracted with --noexec
 #     and inspected, because a release job has no business installing apt
@@ -47,9 +46,8 @@ source "$__repo_root/lib/ui.sh"
 # target from it, so it shows up in `--info` and in the message a user sees.
 readonly ARCHIVE_DIR_NAME='linux-utils'
 
-# What must be in the extracted archive, and what must not be. Checked after the
-# build, because the whole point of the check is the archive rather than the
-# repo it was made from.
+# What must be in the extracted archive. Checked after the build, because the
+# whole point of the check is the archive rather than the repo it was made from.
 readonly REQUIRED_FILES=(
     main.sh
     README.md
@@ -63,9 +61,6 @@ readonly REQUIRED_FILES=(
     setup/sdkman.sh
     setup/vscode.sh
     setup/zsh.sh
-)
-readonly EXCLUDED_FILES=(
-    setup/dev-setup.sh
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,10 +121,6 @@ stage_payload() {
     cp -p "$__repo_root/main.sh" "$__repo_root/README.md" "$dir/"
     cp -r "$__repo_root/lib" "$__repo_root/setup" "$dir/"
 
-    for file in "${EXCLUDED_FILES[@]}"; do
-        rm -f "$dir/$file"
-    done
-
     chmod +x "$dir/main.sh"
 }
 
@@ -186,13 +177,6 @@ verify_archive() {
     for file in "${REQUIRED_FILES[@]}"; do
         if [[ ! -e "$extract/$file" ]]; then
             error "not in the archive: $file"
-            return 1
-        fi
-    done
-
-    for file in "${EXCLUDED_FILES[@]}"; do
-        if [[ -e "$extract/$file" ]]; then
-            error "should not be in the archive: $file"
             return 1
         fi
     done

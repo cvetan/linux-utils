@@ -4,14 +4,9 @@ Idempotent bootstrap scripts that turn a fresh Ubuntu box — or an Ubuntu
 derivative such as Linux Mint, Pop!_OS or Zorin — into a ready-to-use
 development machine.
 
-The repository currently contains two generations of the same tool:
-
-| | Script | Status |
-|---|---|---|
-| **v1 (monolith)** | `setup/dev-setup.sh` | Legacy, superseded — kept for reference until the v2 port finishes. |
-| **v2 (modular)** | [`main.sh`](main.sh) + [`lib/`](lib) + [`setup/`](setup) | The one to run. A refactor of v1 into small, composable modules. |
-
-Run `main.sh`. The interesting work is in `main.sh`, `lib/` and `setup/`.
+The tool is modular: [`main.sh`](main.sh) is the entrypoint, [`lib/`](lib) holds
+the reusable pieces, and [`setup/`](setup) holds one file per step. Run
+`main.sh`; the interesting work is in those three places.
 
 ---
 
@@ -101,13 +96,12 @@ unpacked yourself — and writes `dist/linux-utils-<version>.run` with a
 packages on a runner.
 
 Two things about it are deliberate. The payload is an explicit allowlist —
-`main.sh`, `README.md`, `lib/`, `setup/` without the v1 monolith — because the
-preflight parses the `## Requirements` bullets out of the bundled README at run
-time, so an archive missing it extracts fine and then quietly verifies nothing.
-And the build refuses to publish an archive it has not checked first: the
-embedded checksums, the file list, the executable bit on `main.sh`, `bash -n`
-over every packaged script, and a read of the requirements back out of the
-extracted copy.
+`main.sh`, `README.md`, `lib/` and `setup/` — because the preflight parses the
+`## Requirements` bullets out of the bundled README at run time, so an archive
+missing it extracts fine and then quietly verifies nothing. And the build
+refuses to publish an archive it has not checked first: the embedded checksums,
+the file list, the executable bit on `main.sh`, `bash -n` over every packaged
+script, and a read of the requirements back out of the extracted copy.
 
 ## Testing in a container
 
@@ -144,68 +138,78 @@ GB and several minutes per release.
 
 ## What gets installed
 
-This is v1's package set. v2's base packages differ — see
-[v2 status](#v2-status).
+`main.sh` runs the modules below in order. Steps 5, 8 and 9 (nvm, Git and SSH)
+are stubbed out; see [Status](#status).
 
-1. **Base system & CLI tools** — `build-essential`, `curl`, `wget`, `git`, `unzip`,
-   `jq`, `ripgrep`, `fzf`, `tmux`, `tree`, `htop`, `zsh`, plus `bat` and `fd`
-   (aliased from Ubuntu's `batcat` and `fdfind`).
+1. **System update & base packages** — `apt update` and `apt upgrade`, the
+   `universe` and `multiverse` components, and the third-party PPAs listed under
+   [Notes](#notes). The package set is split in two: a small core the run cannot
+   continue without (`build-essential`, `curl`, `wget`, `zip`, `unzip`, `git`,
+   `zsh`, `gnupg`, `ca-certificates`, `lsb-release`, `xclip`, `htop`, `tmux`)
+   and a best-effort desktop/media set (`ubuntu-restricted-extras`, `bat`,
+   `fd-find`, `xsel`, `btop`, `fastfetch`, `synaptic`, `apt-xapian-index`,
+   `powerline`, `fonts-powerline`, `dconf-editor`, `libglib2.0-dev-bin`,
+   `gnome-shell-extension-manager`, `gnome-tweaks`, `solaar`, `deluge`, `mpv`,
+   `celluloid`, `libreoffice`, `libreoffice-style-sifr`, `pipx`, plus the
+   PPA-only `gdm-settings` and `grub-customizer`). A package the running release
+   does not carry is warned about and skipped, never fatal; only a missing core
+   package stops the run. `batcat` is symlinked to `bat`.
 2. **Docker Engine** — installed from Docker's official apt repository (not
    distro packages), including Buildx and Compose v2 plugins. Conflicting legacy
    packages (`docker.io`, `podman-docker`, `containerd`, …) are removed first, and
    your user is added to the `docker` group.
 3. **Zsh + Oh-My-Zsh** — installed without prompts, and set as the default shell.
-   Your `.zshrc` gets idempotently appended aliases and `PATH` entries.
-4. **nvm + Node.js** — version is configurable via `NODE_VERSION` (defaults to
-   `lts/*`).
-5. **PHP + Composer + Laravel** — PHP 8.3 from Ondřej's PPA with the common
-   extensions, Composer installed to `/usr/local/bin` after a SHA-384 checksum
-   verification, and the global `laravel` installer.
-6. **SDKMAN + Java** — version is configurable via `JAVA_VERSION`.
-7. **Git configuration** — `user.name`, `user.email`, `core.editor` (`nano`),
-   default branch `main`, `pull.rebase false`, and `color.ui auto`.
-8. **SSH keys** — if `PRIVATE_KEY` / `PUBLIC_KEY` in the script are filled in, they
-   are restored from base64. Otherwise a fresh ed25519 key is generated and the
-   public key is printed so you can add it to GitHub/GitLab.
+   Powerlevel10k runs in `powerline` mode to match the `fonts-powerline` that
+   step 1 installs, and your `.zshrc` gets idempotently appended aliases and
+   `PATH` entries.
+4. **Visual Studio Code** — installed from Microsoft's apt repository. Remove
+   the `vscode_setup` call in `main.sh` if a machine should not get it.
+5. **nvm + Node.js** — stubbed, no code yet.
+6. **PHP + Composer** — the distribution's own PHP CLI, no third-party PPA, so
+   the version tracks the Ubuntu release (8.1 on 22.04, 8.3 on 24.04, 8.5 on
+   26.04), with the common extensions. Composer is installed to
+   `~/.local/bin/composer` after a SHA-384 checksum verification.
+7. **SDKMAN + Java** — SDKMAN!, with a Temurin JDK chosen from a menu (or pinned
+   with `JAVA_VERSION`).
+8. **Git configuration** — stubbed, no code yet.
+9. **SSH keys** — stubbed, no code yet.
 
 ## Configuration
 
-`setup/dev-setup.sh` has a config block near the top. Edit it before running:
+There is no central config block. Each module reads its settings from the
+environment and falls back to a sensible default, so most machines need no
+configuration at all. Export what you want to override before running:
 
 ```bash
-GIT_NAME="Your Name"
-GIT_EMAIL="you@example.com"
-NODE_VERSION="lts/*"      # "20", "22", "lts/*", ...
-JAVA_VERSION="21.0.2-tem" # run `sdk list java` to browse available IDs
-
-# Leave both empty to generate a new key instead.
-PRIVATE_KEY="$(base64 -w0 ~/.ssh/id_ed25519)"
-PUBLIC_KEY="$(base64 -w0 ~/.ssh/id_ed25519.pub)"
+JAVA_VERSION="21.0.2-tem"   # pin a Temurin JDK; unset offers a menu
+ZSH="$HOME/.oh-my-zsh"      # Oh-My-Zsh install location
+SDKMAN_DIR="$HOME/.sdkman"  # SDKMAN install location
+COMPOSER_BIN="$HOME/.local/bin/composer"
 ```
 
-> **Do not commit real keys.** Keep `PRIVATE_KEY` empty in any pushed copy, or
-> add it to `.gitignore` before setting it.
+Some settings are arrays edited in place rather than exported — the global
+Composer packages in `_COMPOSER_GLOBAL_PACKAGES` in `setup/php.sh`, for example,
+which is empty by default. The [preflight](#before-it-runs) has its own switches
+(`SETUP_ASSUME_YES`, `SOFT_PREFLIGHT`, `PREFLIGHT_README`).
 
 ## After the run
 
 A few changes need a new login to take effect:
 
-1. `exec zsh` (or log out and back in) to pick up the shell, `nvm`, and SDKMAN setup.
+1. `exec zsh` (or log out and back in) to pick up the shell and SDKMAN setup.
 2. Re-login so the `docker` group membership applies — otherwise `docker` still
    asks for `sudo`.
-3. If a new SSH key was generated, add the printed public key to GitHub/GitLab.
 
-## v2 status
+## Status
 
-`main.sh` runs five of the eight steps, plus the VS Code module that is not one
-of them:
+`main.sh` runs six of the nine steps:
 
-| # | Step | v2 |
+| # | Step | Module |
 |---|---|---|
 | 1 | System update & base packages | [`setup/base_packages.sh`](setup/base_packages.sh) |
 | 2 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
 | 3 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
-| 4 | Visual Studio Code (not a v1 step) | [`setup/vscode.sh`](setup/vscode.sh) |
+| 4 | Visual Studio Code | [`setup/vscode.sh`](setup/vscode.sh) |
 | 6 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
 | 5, 8–9 | nvm, Git, SSH | stubbed sections in `main.sh`, no code yet |
@@ -226,38 +230,12 @@ home). Composer's global bin (`~/.config/composer/vendor/bin`) is appended to
 `.zshrc`. Global packages come from the `_COMPOSER_GLOBAL_PACKAGES` array in the
 module, empty by default — add an entry such as `'phpunit/phpunit'` and re-run.
 
-The v2-only features — the [preflight](#before-it-runs), the `ERR` trap,
-`SETUP_ASSUME_YES`, `SOFT_PREFLIGHT` — do not exist in v1; v1 has no
-confirmation prompt at all.
-
-### Where v2 has already diverged from v1
-
-- **A different base package set.** v2 keeps the PPAs and the apt update, and
-  adds a desktop-and-media set on top: `btop`, `fastfetch`, `synaptic`,
-  `dconf-editor`, `gdm-settings`, `gnome-tweaks`,
-  `gnome-shell-extension-manager`, `solaar`, `deluge`, `mpv`, `celluloid`,
-  `libreoffice`, `grub-customizer`, `pipx`, plus `ubuntu-restricted-extras`.
-  It also installs `bat` and `fd-find` (aliased to `cat` and `fd`, with the
-  `batcat` → `bat` symlink) and `tmux`. It does **not** install v1's `jq`,
-  `ripgrep`, `fzf` or `tree`; sections 5, 8 and 9, once ported, are where the
-  rest of v1's set would come back.
-- **Docker's repo is added in deb822 format.** v2 writes
-  `/etc/apt/sources.list.d/docker.sources` and keeps the upstream key
-  ASCII-armored as `docker.asc`, referenced by `Signed-By`. v1 dearmors it into
-  `docker.gpg` and writes a classic one-line `docker.list`. Both resolve to the
-  same `download.docker.com/linux/ubuntu` repository, so either is fine on its
-  own; installing v1 then v2 leaves the deb822 file behind.
-- **Powerlevel10k runs in `powerline` mode, not `nerdfont-complete`,** to match
-  the `fonts-powerline` that step 1 actually installs. v1 used
-  `nerdfont-complete`, which needs a Nerd Font and renders boxes without one.
-
-### Known gaps in v2
+### Known gaps
 
 - `add_custom_repositories` re-adds every PPA and reinstalls the whole base set
   on each run. Harmless — `apt install` on an installed package is a no-op, and
-  `add-apt-repository` on an already-added PPA is a no-op — but slower than v1's
-  guarded steps, and the only step in either generation that is not re-runnable
-  cheaply.
+  `add-apt-repository` on an already-added PPA is a no-op — but slower than it
+  needs to be, and the only step that is not re-runnable cheaply.
 - Of the seven PPAs, only two supply a package that is not in the Ubuntu archive
   (`gdm-settings` and `grub-customizer`). The other five are kept for newer
   builds of packages the archive already has; dropping them is a separate call.
@@ -273,7 +251,7 @@ linux-utils/
 ├── README.md
 ├── Dockerfile           # disposable sandbox image for scripts/docker-test.sh
 ├── .dockerignore
-├── main.sh              # v2 entrypoint — owns shell options, logging, preflight
+├── main.sh              # entrypoint — owns shell options, logging, preflight
 ├── lib/
 │   ├── ui.sh            # colors, banners, sections, log levels, spinner, markdown
 │   ├── log.sh           # the run log file and the `run` command wrapper
@@ -283,13 +261,12 @@ linux-utils/
 │   ├── build-archive.sh # package the repo into a makeself .run for a release
 │   └── docker-test.sh   # run main.sh on a clean Ubuntu in a throwaway container
 └── setup/
-    ├── dev-setup.sh     # v1 monolith — legacy, superseded
-    ├── base_packages.sh # v2: apt repositories + base packages
-    ├── docker.sh        # v2: Docker Engine from the official repo
-    ├── php.sh           # v2: PHP CLI from the archive + Composer
-    ├── zsh.sh           # v2: zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
-    ├── vscode.sh        # v2: VS Code from Microsoft's apt repository
-    └── sdkman.sh        # v2: SDKMAN + Temurin JDK
+    ├── base_packages.sh # apt repositories + base packages
+    ├── docker.sh        # Docker Engine from the official repo
+    ├── php.sh           # PHP CLI from the archive + Composer
+    ├── zsh.sh           # zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
+    ├── vscode.sh        # VS Code from Microsoft's apt repository
+    └── sdkman.sh        # SDKMAN + Temurin JDK
 ```
 
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only
@@ -492,7 +469,7 @@ something_setup() {
 
 Then source it from `main.sh` alongside the other libraries and add a numbered
 section for the `*_setup` call. Sections 5, 8 and 9 (nvm, Git, SSH) are still
-stubbed out and waiting to be ported from `setup/dev-setup.sh`.
+stubbed out.
 
 A few rules keep the layering intact:
 
@@ -520,13 +497,13 @@ A few rules keep the layering intact:
 - **Docker group:** `usermod -aG docker "$(id -un)"` grants root-equivalent access.
   Only do this on a machine you fully trust. `id -un` rather than `$USER` because
   `$USER` is unset under `env -i`, which is fatal with `set -u`.
-- **Third-party PPAs:** v2's `setup/base_packages.sh` adds seven personal package
+- **Third-party PPAs:** `setup/base_packages.sh` adds seven personal package
   archives (LibreOffice, Solaar, mpv, deadbeef, gnome-mpv, grub-customizer, GDM
-  settings) and installs packages straight out of them, so dropping the `add-apt-repository`
-  lines means also dropping the packages that only exist there. v1 adds none of
-  these; its only third-party archive is Ondřej's PHP PPA, in section 5. v2's
-  `setup/php.sh` deliberately does not add that PPA: it installs the distribution's
-  own PHP, so the version tracks the Ubuntu release rather than upstream.
+  settings) and installs packages straight out of them, so dropping the
+  `add-apt-repository` lines means also dropping the packages that only exist
+  there. `setup/php.sh` deliberately does not add a PHP PPA: it installs the
+  distribution's own PHP, so the version tracks the Ubuntu release rather than
+  upstream.
 - **A PPA without a suite for your Ubuntu is skipped, never fatal.** `apt update`
   exits 100 on any configured repository it cannot fetch, so one dead PPA would
   otherwise abort the whole run at step 1 — which is exactly what

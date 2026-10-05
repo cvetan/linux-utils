@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# main.sh — v2 entrypoint
+# main.sh — entrypoint
 # =============================================================================
 # Everything process-wide is set up here, not in lib/: shell options, the IFS,
 # the ERR trap, $LOG_FILE and run_or_die. The libraries under lib/ never call
