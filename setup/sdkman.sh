@@ -115,7 +115,7 @@ extend_zshrc() {
     local block
     # The SDKMAN installer already appends its own block to .zshrc; the SDKMAN_DIR
     # marker makes this a no-op once that happened, and the safety net for a
-    # machine where it did not. zsh.sh wrote the base .zshrc in step 3, so this
+    # machine where it did not. zsh.sh wrote the base .zshrc in step 2, so this
     # lands after its "User configuration" block.
     block="\n# SDKMAN\nexport SDKMAN_DIR=\"$SDKMAN_DIR\"\n[[ -s \"\$SDKMAN_DIR/bin/sdkman-init.sh\" ]] && source \"\$SDKMAN_DIR/bin/sdkman-init.sh\""
     append_if_missing "$HOME/.zshrc" 'SDKMAN_DIR' "$block"

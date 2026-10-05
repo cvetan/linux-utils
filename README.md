@@ -154,14 +154,15 @@ stubbed out; see [Status](#status).
    PPA-only `gdm-settings` and `grub-customizer`). A package the running release
    does not carry is warned about and skipped, never fatal; only a missing core
    package stops the run. `batcat` is symlinked to `bat`.
-2. **Docker Engine** — installed from Docker's official apt repository (not
+2. **Zsh + Oh-My-Zsh** — installed without prompts, and set as the default shell.
+   Powerlevel10k runs in `powerline` mode to match the `fonts-powerline` that
+   step 1 installs, and your `.zshrc` gets idempotently appended aliases and
+   `PATH` entries. Runs before the installers below because they write their init
+   into your shell config.
+3. **Docker Engine** — installed from Docker's official apt repository (not
    distro packages), including Buildx and Compose v2 plugins. Conflicting legacy
    packages (`docker.io`, `podman-docker`, `containerd`, …) are removed first, and
    your user is added to the `docker` group.
-3. **Zsh + Oh-My-Zsh** — installed without prompts, and set as the default shell.
-   Powerlevel10k runs in `powerline` mode to match the `fonts-powerline` that
-   step 1 installs, and your `.zshrc` gets idempotently appended aliases and
-   `PATH` entries.
 4. **Visual Studio Code** — installed from Microsoft's apt repository. Remove
    the `vscode_setup` call in `main.sh` if a machine should not get it.
 5. **nvm + Node.js** — stubbed, no code yet.
@@ -214,8 +215,8 @@ A few changes need a new login to take effect:
 | # | Step | Module |
 |---|---|---|
 | 1 | System update & base packages | [`setup/base_packages.sh`](setup/base_packages.sh) |
-| 2 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
-| 3 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
+| 2 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
+| 3 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
 | 4 | Visual Studio Code | [`setup/vscode.sh`](setup/vscode.sh) |
 | 6 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |

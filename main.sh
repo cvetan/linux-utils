@@ -89,14 +89,16 @@ fi
 base_packages_setup
 
 # =============================================================================
-# 2. DOCKER ENGINE
+# 2. ZSH + OH-MY-ZSH
 # =============================================================================
-docker_setup
+# Before Docker and the language installers: SDKMAN and friends write their
+# init into the user's shell config, and that config has to exist first.
+zsh_setup
 
 # =============================================================================
-# 3. ZSH + OH-MY-ZSH
+# 3. DOCKER ENGINE
 # =============================================================================
-zsh_setup
+docker_setup
 
 
 # =============================================================================
