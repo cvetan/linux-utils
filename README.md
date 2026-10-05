@@ -138,8 +138,7 @@ GB and several minutes per release.
 
 ## What gets installed
 
-`main.sh` runs the modules below in order. Step 5 (nvm) is stubbed out; see
-[Status](#status).
+`main.sh` runs the modules below in order; see [Status](#status).
 
 1. **System update & base packages** — `apt update` and `apt upgrade`, the
    `universe` and `multiverse` components, and the third-party PPAs listed under
@@ -165,7 +164,14 @@ GB and several minutes per release.
    your user is added to the `docker` group.
 4. **Visual Studio Code** — installed from Microsoft's apt repository. Remove
    the `vscode_setup` call in `main.sh` if a machine should not get it.
-5. **nvm + Node.js** — stubbed, no code yet.
+5. **Node.js + npm** — the distribution's own Node and npm, no third-party PPA
+   and no nvm, so the version tracks the Ubuntu release (12 on 22.04, 18 on
+   24.04, 22 on 26.04). Debian/Ubuntu build `nodejs` `--without-npm`, so `npm`
+   (which also ships `npx`) is a separate package. This is local tooling only:
+   projects run their own Node from their Docker setup, and the module warns
+   when the archive version is past end-of-life. Global npm packages go to
+   `~/.local` (`NPM_PREFIX`), so `npm install -g` needs no sudo and its bins land
+   in `~/.local/bin`.
 6. **PHP + Composer** — the distribution's own PHP CLI, no third-party PPA, so
    the version tracks the Ubuntu release (8.1 on 22.04, 8.3 on 24.04, 8.5 on
    26.04), with the common extensions. Composer is installed to
@@ -197,6 +203,7 @@ JAVA_VERSION="21.0.2-tem"   # pin a Temurin JDK; unset offers a menu
 ZSH="$HOME/.oh-my-zsh"      # Oh-My-Zsh install location
 SDKMAN_DIR="$HOME/.sdkman"  # SDKMAN install location
 COMPOSER_BIN="$HOME/.local/bin/composer"
+NPM_PREFIX="$HOME/.local"              # where `npm install -g` puts packages
 GIT_USER_NAME="Ada Lovelace"           # non-interactive git identity
 GIT_USER_EMAIL="ada@example.com"
 GIT_DEFAULT_BRANCH="main"              # name for new repositories
@@ -207,8 +214,9 @@ SSH_DIR="$HOME/.ssh"                   # where step 9 looks for keys / writes co
 ```
 
 Some settings are arrays edited in place rather than exported — the global
-Composer packages in `_COMPOSER_GLOBAL_PACKAGES` in `setup/php.sh`, for example,
-which is empty by default. The [preflight](#before-it-runs) has its own switches
+Composer packages in `_COMPOSER_GLOBAL_PACKAGES` in `setup/php.sh` and the
+global npm packages in `_NPM_GLOBAL_PACKAGES` in `setup/node.sh`, for example,
+which are empty by default. The [preflight](#before-it-runs) has its own switches
 (`SETUP_ASSUME_YES`, `SOFT_PREFLIGHT`, `PREFLIGHT_README`).
 
 ## After the run
@@ -221,7 +229,7 @@ A few changes need a new login to take effect:
 
 ## Status
 
-`main.sh` runs eight of the nine steps:
+`main.sh` runs all nine steps:
 
 | # | Step | Module |
 |---|---|---|
@@ -229,11 +237,11 @@ A few changes need a new login to take effect:
 | 2 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
 | 3 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
 | 4 | Visual Studio Code | [`setup/vscode.sh`](setup/vscode.sh) |
+| 5 | Node.js + npm | [`setup/node.sh`](setup/node.sh) |
 | 6 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
 | 8 | Git configuration | [`setup/git.sh`](setup/git.sh) |
 | 9 | SSH keys | [`setup/ssh.sh`](setup/ssh.sh) |
-| 5 | nvm | stubbed section in `main.sh`, no code yet |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
@@ -342,6 +350,7 @@ linux-utils/
     ├── base_packages.sh # apt repositories + base packages
     ├── docker.sh        # Docker Engine from the official repo
     ├── git.sh           # global git identity and defaults
+    ├── node.sh          # Node.js + npm from the archive
     ├── php.sh           # PHP CLI from the archive + Composer
     ├── zsh.sh           # zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
     ├── vscode.sh        # VS Code from Microsoft's apt repository
@@ -580,7 +589,7 @@ something_setup() {
 ```
 
 Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call. Section 5 (nvm) is still stubbed out.
+section for the `*_setup` call.
 
 A few rules keep the layering intact:
 
@@ -623,6 +632,15 @@ A few rules keep the layering intact:
   first, and skipped with a warning if there is no suite for
   `$VERSION_CODENAME`. Don't "simplify" this back to bare `add-apt-repository`
   lines; it will break again on the next Ubuntu release.
+- **Node.js, like PHP, comes from the archive — no PPA and no nvm.** The
+  version therefore tracks the Ubuntu release rather than upstream, which is an
+  accepted trade-off: local Node is a utility for one-off tooling while projects
+  run their own version from their Docker image. The consequence is that 22.04
+  (Node 12) and 24.04 (Node 18) are past end-of-life, so `setup/node.sh` warns
+  when the installed major is below 20 and installs anyway. `npm` is a separate
+  archive package because Ubuntu builds `nodejs` `--without-npm`; it is also what
+  provides `npx`. Global packages install into `~/.local` (`NPM_PREFIX`), never
+  with sudo.
 - **The `ERR` trap stays out of subshells.** `set -E` makes it fire inside
   `$(...)` too, where `exit` only ends the subshell — so a handler that reported
   and exited there would print a trace for a failure the enclosing command then

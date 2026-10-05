@@ -19,7 +19,7 @@ source "$_setup_dir/../lib/utils.sh"
 # mean.
 _OMZ_DIR="${ZSH:-$HOME/.oh-my-zsh}"
 
-# Marker for the block we own in .zshrc. Later steps (nvm, SDKMAN, ...) append to
+# Marker for the block we own in .zshrc. Later steps (Node, SDKMAN, ...) append to
 # the same file, so it is deliberately NOT overwritten on re-runs.
 ZSHRC_MARKER='# Managed by linux-utils (base config)'
 

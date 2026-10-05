@@ -58,6 +58,7 @@ readonly REQUIRED_FILES=(
     setup/base_packages.sh
     setup/docker.sh
     setup/git.sh
+    setup/node.sh
     setup/php.sh
     setup/sdkman.sh
     setup/ssh.sh

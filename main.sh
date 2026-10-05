@@ -34,6 +34,7 @@ source "$__repo_root/setup/base_packages.sh"
 source "$__repo_root/setup/docker.sh"
 source "$__repo_root/setup/zsh.sh"
 source "$__repo_root/setup/vscode.sh"
+source "$__repo_root/setup/node.sh"
 source "$__repo_root/setup/php.sh"
 source "$__repo_root/setup/sdkman.sh"
 source "$__repo_root/setup/git.sh"
@@ -113,8 +114,9 @@ vscode_setup
 
 
 # =============================================================================
-# 5. NVM + NODE.JS
+# 5. NODE.JS + NPM
 # =============================================================================
+node_setup
 
 
 # =============================================================================
