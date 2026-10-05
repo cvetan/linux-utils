@@ -73,8 +73,8 @@ set_sdkman_config() {
 list_temurin_versions() {
     sdk_run sdk list java 2>/dev/null \
         | awk -F'|' '
-            NF >= 4 {
-                v = $4
+            NF >= 6 {
+                v = $NF
                 gsub(/^[ \t]+|[ \t]+$/, "", v)
                 if (v ~ /-tem$/) print v
             }
@@ -111,7 +111,7 @@ install_java() {
 }
 
 # ── .zshrc ────────────────────────────────────────────────────────────────────
-extend_zshrc() {
+extend_zshrc_sdkman() {
     local block
     # The SDKMAN installer already appends its own block to .zshrc; the SDKMAN_DIR
     # marker makes this a no-op once that happened, and the safety net for a
@@ -143,5 +143,5 @@ sdkman_setup() {
         info 'Temurin JDK installed and set as the SDKMAN default.'
     fi
 
-    extend_zshrc
+    extend_zshrc_sdkman
 }

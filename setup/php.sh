@@ -144,7 +144,7 @@ install_global_packages() {
 }
 
 # ── .zshrc ────────────────────────────────────────────────────────────────────
-extend_zshrc() {
+extend_zshrc_composer() {
     local zshrc="$HOME/.zshrc"
 
     # Only the global bin dir: ~/.local/bin itself is added by setup/zsh.sh,
@@ -178,5 +178,5 @@ php_setup() {
     fi
 
     install_global_packages
-    extend_zshrc
+    extend_zshrc_composer
 }

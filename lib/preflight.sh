@@ -50,14 +50,14 @@ _req_detail_bash() { printf 'bash %s' "$BASH_VERSION"; }
 
 _req_check_apt() {
     # Ubuntu-like only (Ubuntu itself, Linux Mint, Pop!_OS, Zorin, ...). Vanilla
-    # Debian also reports apt-get, but the base package set and Docker repo in
+    # Debian also reports apt, but the base package set and Docker repo in
     # setup/ are Ubuntu-specific, so accepting it here would let preflight pass
     # and step 1 fail. Derivatives carry ID_LIKE=ubuntu.
     local distro id_like
     distro="$(_os_release ID)"; id_like="$(_os_release ID_LIKE)"
     distro="${distro,,} ${id_like,,}"
     if [[ "$distro" == *ubuntu* ]]; then
-        command_exists apt-get
+        command_exists apt
     else
         return 1
     fi
@@ -66,7 +66,7 @@ _req_detail_apt() {
     local pretty
     pretty="$(_os_release PRETTY_NAME)"
     [[ -n "$pretty" ]] || pretty='unknown distribution'
-    printf '%s, apt-get: %s' "$pretty" "$(command -v apt-get 2>/dev/null || printf 'not found')"
+    printf '%s, apt: %s' "$pretty" "$(command -v apt 2>/dev/null || printf 'not found')"
 }
 
 _req_check_sudo() { (( EUID == 0 )) || command_exists sudo; }

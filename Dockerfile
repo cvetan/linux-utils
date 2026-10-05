@@ -31,8 +31,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # so the run exercises base_packages.sh's own bootstrap instead of being handed
 # them. Only sudo — needed to host the tester user — is pre-seeded.
 # hadolint ignore=DL3008
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends sudo \
+RUN apt update \
+    && apt install -y --no-install-recommends sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # A container has no init. Without this, a maintainer script that calls

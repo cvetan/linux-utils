@@ -57,8 +57,8 @@ jobs:
       # binary on PATH is the whole installation.
       - name: Install makeself
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends makeself
+          sudo apt update -qq
+          sudo apt install -y --no-install-recommends makeself
           makeself --version
 
       # Invoked through `bash` so a checkout that lost the executable bit fails

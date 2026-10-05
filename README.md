@@ -487,7 +487,7 @@ source of truth for wording and the table only carries machine-specific logic.
 |---|---|---|
 | `linux` | `_req_check_linux` | `kernel <uname -sr>` |
 | `bash` | `_req_check_bash` | `bash <version>` |
-| `ubuntu` | `_req_check_apt` | `<PRETTY_NAME>, apt-get: <path>` |
+| `ubuntu` | `_req_check_apt` | `<PRETTY_NAME>, apt: <path>` |
 | `sudo` | `_req_check_sudo` | `sudo: <path>`, or that you are root |
 
 Adding a bullet to the README without a matching row is reported rather than
@@ -527,7 +527,7 @@ the requirements and proving them against your machine:
 ────────────────────────────────────────────────────────────
   ✓  Linux (the script hard-fails on anything else) — kernel Linux 6.6.13-1-default
   ✓  bash 4.0 or newer — bash 5.2.21(1)-release
-  ✓  Ubuntu or an Ubuntu derivative, apt based — Ubuntu 24.04.1 LTS, apt-get: /usr/bin/apt-get
+  ✓  Ubuntu or an Ubuntu derivative, apt based — Ubuntu 24.04.1 LTS, apt: /usr/bin/apt
   ✓  sudo available — the script will prompt for your password — sudo: /usr/bin/sudo
   ✓  All requirements satisfied
   ›  Run the setup now? [Y/n]

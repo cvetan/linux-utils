@@ -148,7 +148,7 @@ set_zsh_default() {
 # The shared append_if_missing from lib/utils.sh, not a local override: a local
 # two-argument version hardcoded to $zshrc silently redirects every other
 # module's three-argument calls into .zshrc.
-extend_zshrc() {
+extend_zshrc_path_aliases() {
     local zshrc="$HOME/.zshrc"
 
     # PATH first, so the `bat` symlink link_cli_aliases drops in ~/.local/bin is
@@ -173,5 +173,5 @@ zsh_setup() {
     install_zsh_extras
     write_zshrc
     set_zsh_default
-    extend_zshrc
+    extend_zshrc_path_aliases
 }

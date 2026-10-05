@@ -29,8 +29,8 @@ jobs:
       # the runner (2.5.0-1 on noble).
       - name: Install makeself
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends makeself
+          sudo apt update -qq
+          sudo apt install -y --no-install-recommends makeself
           makeself --version
 
       # The commit, not a version: there is no release to name it after yet.

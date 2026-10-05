@@ -44,6 +44,7 @@ _CORE_PACKAGES=(
     curl wget zip unzip
     git zsh
     gnupg ca-certificates lsb-release
+    openssh-client
     xclip
     htop tmux
 )

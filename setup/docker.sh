@@ -32,7 +32,7 @@ _docker_suite() {
 remove_old_docker() {
     local pkg
     for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
-        _sudo apt-get remove -y "$pkg" 2>/dev/null || true
+        _sudo apt remove -y "$pkg" 2>/dev/null || true
     done
 }
 
@@ -44,8 +44,8 @@ add_docker_repo() {
         return 1
     fi
 
-    _sudo apt-get update
-    _sudo apt-get install -y ca-certificates curl
+    _sudo apt update
+    _sudo apt install -y ca-certificates curl
     _sudo install -m 0755 -d /etc/apt/keyrings
     _sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
         -o /etc/apt/keyrings/docker.asc
@@ -60,7 +60,7 @@ Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
 
-    _sudo apt-get update
+    _sudo apt update
 }
 
 install_docker_packages() {
