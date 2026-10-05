@@ -1,6 +1,7 @@
 # linux-utils
 
-Idempotent bootstrap scripts that turn a fresh Ubuntu/Debian box into a ready-to-use
+Idempotent bootstrap scripts that turn a fresh Ubuntu box — or an Ubuntu
+derivative such as Linux Mint, Pop!_OS or Zorin — into a ready-to-use
 development machine.
 
 The repository currently contains two generations of the same tool:
@@ -18,7 +19,7 @@ Run `main.sh`. The interesting work is in `main.sh`, `lib/` and `setup/`.
 
 - Linux (the script hard-fails on anything else)
 - `bash` 4.0 or newer
-- Ubuntu or Debian, `apt` based
+- Ubuntu or an Ubuntu derivative, `apt` based
 - `sudo` available — the script will prompt for your password
 
 ## Quick start
@@ -108,6 +109,37 @@ embedded checksums, the file list, the executable bit on `main.sh`, `bash -n`
 over every packaged script, and a read of the requirements back out of the
 extracted copy.
 
+## Testing in a container
+
+[`Dockerfile`](Dockerfile) builds a disposable sandbox — a bare Ubuntu, a
+non-root `tester` with passwordless `sudo`, and a `policy-rc.d` that keeps apt
+maintainer scripts from trying to start services in a container with no init.
+The repository is **not** baked in: `scripts/docker-test.sh` mounts it read-only
+at `/work`, so the same image always runs the current working tree and every run
+starts from a clean filesystem.
+
+```bash
+scripts/docker-test.sh              # 26.04, the default
+scripts/docker-test.sh 22.04 24.04 26.04
+```
+
+Each release is built once into `linux-utils-test:<release>` and run in a fresh
+`docker run --rm` container. Because the image is immutable and the container is
+discarded, a second run is a clean install again; the image itself is never
+modified. To test idempotency on an *already-configured* machine instead, run
+the setup twice in one container:
+
+```bash
+RUNS=2 scripts/docker-test.sh 26.04
+```
+
+The base image is deliberately bare — `curl` and `software-properties-common`
+are not installed — so the run exercises the bootstrap in
+`setup/base_packages.sh` rather than being handed its prerequisites. This needs
+a working Docker daemon and outbound network (Launchpad PPAs, Oh-My-Zsh, VS
+Code, Docker's repository), and the full desktop/media set makes a run several
+GB and several minutes per release.
+
 ## What gets installed
 
 This is v1's package set. v2's base packages differ — see
@@ -163,19 +195,20 @@ A few changes need a new login to take effect:
 
 ## v2 status
 
-`main.sh` covers the same eight steps as v1, but only three are ported:
+`main.sh` runs four of the eight steps, plus the VS Code module that is not one
+of them:
 
 | # | Step | v2 |
 |---|---|---|
 | 1 | System update & base packages | [`setup/base_packages.sh`](setup/base_packages.sh) |
 | 2 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
 | 3 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
-| 4–8 | nvm, PHP, SDKMAN, Git, SSH | stubbed sections in `main.sh`, no code yet |
+| 4 | Visual Studio Code (not a v1 step) | [`setup/vscode.sh`](setup/vscode.sh) |
+| 5–9 | nvm, PHP, SDKMAN, Git, SSH | stubbed sections in `main.sh`, no code yet |
 
-Plus one module that is **not** one of the eight: [`setup/vscode.sh`](setup/vscode.sh)
-installs Visual Studio Code from Microsoft's apt repository. It is a complete
-module but is not called from `main.sh` — uncomment the `# vscode_setup` line
-after step 3 to opt in, or call `vscode_setup` yourself after sourcing the libs.
+[`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
+Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
+`vscode_setup` call there if a machine should not get it.
 
 The v2-only features — the [preflight](#before-it-runs), the `ERR` trap,
 `SETUP_ASSUME_YES`, `SOFT_PREFLIGHT` — do not exist in v1; v1 has no
@@ -183,16 +216,15 @@ confirmation prompt at all.
 
 ### Where v2 has already diverged from v1
 
-- **A different base package set.** v2 keeps the PPAs and the apt update, but
-  swaps the CLI set for a desktop-and-media one: `btop`, `fastfetch`,
-  `synaptic`, `dconf-editor`, `gdm-settings`, `gnome-tweaks`,
+- **A different base package set.** v2 keeps the PPAs and the apt update, and
+  adds a desktop-and-media set on top: `btop`, `fastfetch`, `synaptic`,
+  `dconf-editor`, `gdm-settings`, `gnome-tweaks`,
   `gnome-shell-extension-manager`, `solaar`, `deluge`, `mpv`, `celluloid`,
   `libreoffice`, `grub-customizer`, `pipx`, plus `ubuntu-restricted-extras`.
-  It does **not** install `jq`, `ripgrep`, `fzf`, `tree`, `bat`, `tmux`, or the
-  `cat` / `fd` aliases — v1 does. Sections 4–8, once ported, are where the rest
-  of v1's set would come back. Note that the `bat` and `fd` aliases in
-  `setup/zsh.sh` assume `batcat` and `fdfind`, which step 1 still does not
-  install.
+  It also installs `bat` and `fd-find` (aliased to `cat` and `fd`, with the
+  `batcat` → `bat` symlink) and `tmux`. It does **not** install v1's `jq`,
+  `ripgrep`, `fzf` or `tree`; sections 5–9, once ported, are where the rest of
+  v1's set would come back.
 - **Docker's repo is added in deb822 format.** v2 writes
   `/etc/apt/sources.list.d/docker.sources` and keeps the upstream key
   ASCII-armored as `docker.asc`, referenced by `Signed-By`. v1 dearmors it into
@@ -205,9 +237,6 @@ confirmation prompt at all.
 
 ### Known gaps in v2
 
-- `setup/docker.sh` adds you to the `docker` group only inside the install
-  branch. On a machine that already has Docker, the group is never touched, so
-  `docker` keeps asking for `sudo`.
 - `add_custom_repositories` re-adds every PPA and reinstalls the whole base set
   on each run. Harmless — `apt install` on an installed package is a no-op, and
   `add-apt-repository` on an already-added PPA is a no-op — but slower than v1's
@@ -226,20 +255,23 @@ linux-utils/
 │       ├── build.yml          # build + verify the .run on every PR and push
 │       └── release.yml        # …and attach it to a published release
 ├── README.md
+├── Dockerfile           # disposable sandbox image for scripts/docker-test.sh
+├── .dockerignore
 ├── main.sh              # v2 entrypoint — owns shell options, logging, preflight
 ├── lib/
 │   ├── ui.sh            # colors, banners, sections, log levels, spinner, markdown
 │   ├── log.sh           # the run log file and the `run` command wrapper
-│   ├── utils.sh         # command_exists, append_if_missing
+│   ├── utils.sh         # command_exists, _sudo, append_if_missing
 │   └── preflight.sh     # machine detection, requirement checks, confirmation
 ├── scripts/
-│   └── build-archive.sh # package the repo into a makeself .run for a release
+│   ├── build-archive.sh # package the repo into a makeself .run for a release
+│   └── docker-test.sh   # run main.sh on a clean Ubuntu in a throwaway container
 └── setup/
     ├── dev-setup.sh     # v1 monolith — legacy, superseded
     ├── base_packages.sh # v2: apt repositories + base packages
     ├── docker.sh        # v2: Docker Engine from the official repo
     ├── zsh.sh           # v2: zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
-    └── vscode.sh        # v2: VS Code — not called from main.sh, opt in
+    └── vscode.sh        # v2: VS Code from Microsoft's apt repository
 ```
 
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only
@@ -339,14 +371,14 @@ the requirements and proving them against your machine:
 ────────────────────────────────────────────────────────────
   1.  Linux (the script hard-fails on anything else)
   2.  bash 4.0 or newer
-  3.  Ubuntu or Debian, apt based
+  3.  Ubuntu or an Ubuntu derivative, apt based
   4.  sudo available — the script will prompt for your password
 
 ▶  Environment check
 ────────────────────────────────────────────────────────────
   ✓  Linux (the script hard-fails on anything else) — kernel Linux 6.6.13-1-default
   ✓  bash 4.0 or newer — bash 5.2.21(1)-release
-  ✓  Ubuntu or Debian, apt based — Ubuntu 24.04.1 LTS, apt-get: /usr/bin/apt-get
+  ✓  Ubuntu or an Ubuntu derivative, apt based — Ubuntu 24.04.1 LTS, apt-get: /usr/bin/apt-get
   ✓  sudo available — the script will prompt for your password — sudo: /usr/bin/sudo
   ✓  All requirements satisfied
   ›  Run the setup now? [Y/n]
@@ -370,6 +402,26 @@ The legacy `UI_README` name is still honoured alongside it. This matters if you
 edit the [Requirements](#requirements) bullets: the preflight reads the wording
 from there at run time, so a typo in that section shows up on your terminal as
 a mismatched or unverified check.
+
+### Unattended runs
+
+Two things must be true for `main.sh` to run with no terminal:
+
+- `SETUP_ASSUME_YES=1` (implied automatically when stdout is not a TTY) so the
+  confirmation is skipped.
+- The invoking user is `root`, or has passwordless `sudo`. When a TTY is
+  present the script caches `sudo` credentials once; an unattended run cannot
+  answer a password prompt, so `sudo` must not ask.
+
+Non-interactive apt is handled for you: the entrypoint exports
+`DEBIAN_FRONTEND=noninteractive`, `NEEDRESTART_MODE=a` and
+`APT_LISTCHANGES_FRONTEND=none`, and pre-accepts the core-fonts EULA that
+`ubuntu-restricted-extras` pulls in. The base package set is split into a small
+core (missing → the run stops) and desktop/media extras (missing → warned about
+and skipped). That is what makes the same script work across 22.04, 24.04 and
+26.04, where packages come and go — for example `fastfetch` is absent before
+24.04, and a PPA that publishes no suite for the release is skipped rather than
+failing the run.
 
 ### When a step goes wrong
 
@@ -404,7 +456,7 @@ source "$_setup_dir/../lib/ui.sh"
 source "$_setup_dir/../lib/utils.sh"
 
 install_something() {
-    sudo apt install -y something
+    _sudo apt install -y something
 }
 
 something_setup() {
@@ -419,7 +471,7 @@ something_setup() {
 ```
 
 Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call. Sections 3–8 (Zsh, nvm, PHP, SDKMAN, Git, SSH)
+section for the `*_setup` call. Sections 5–9 (nvm, PHP, SDKMAN, Git, SSH)
 are stubbed out and waiting to be ported from `setup/dev-setup.sh`.
 
 A few rules keep the layering intact:

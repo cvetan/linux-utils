@@ -10,15 +10,30 @@
 set -eEuo pipefail
 IFS=$'\n\t'
 
+# Non-interactive apt, process-wide (that is why it lives in the entrypoint).
+# Without DEBIAN_FRONTEND the ubuntu-restricted-extras / ttf-mscorefonts EULA
+# blocks the install, and on 22.04+ needrestart stops to ask about services.
+# UCF_FORCE_CONFFOLD keeps a package upgrade from prompting about changed config
+# files. All of these are fatal to an unattended run.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export APT_LISTCHANGES_FRONTEND=none
+export UCF_FORCE_CONFFOLD=1
+
 __repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source "$__repo_root/lib/ui.sh"
 source "$__repo_root/lib/log.sh"
+# The log captures raw command output, which may include secrets; keep it
+# private from the moment it exists.
+: >> "$LOG_FILE"
+chmod 600 "$LOG_FILE" 2>/dev/null || true
 source "$__repo_root/lib/utils.sh"
 source "$__repo_root/lib/preflight.sh"
 source "$__repo_root/setup/base_packages.sh"
 source "$__repo_root/setup/docker.sh"
 source "$__repo_root/setup/zsh.sh"
+source "$__repo_root/setup/vscode.sh"
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
 # A trap is a process-wide setting, so it belongs to the entrypoint. `set -E`
@@ -58,6 +73,13 @@ banner 'DEVELOPMENT MACHINE SETUP'
 # Show README requirements, verify them on this machine, ask for confirmation.
 preflight || exit $?
 
+# Cache sudo credentials once so every later step does not prompt again. Skipped
+# as root (nothing to cache) and without a TTY, where prompting would hang — an
+# unattended run must instead be root or have passwordless sudo.
+if (( EUID != 0 )) && [[ -t 0 ]] && command_exists sudo; then
+    sudo -v || true
+fi
+
 # =============================================================================
 # 1. SYSTEM UPDATE & BASE PACKAGES
 # =============================================================================
@@ -73,32 +95,33 @@ docker_setup
 # =============================================================================
 zsh_setup
 
-# VS Code is not one of the eight steps. setup/vscode.sh is a complete module,
-# so uncomment to run it here — or call vscode_setup from your own shell after
-# sourcing this repo's libraries.
-# vscode_setup
+
+# =============================================================================
+# 4. VSCODE SETUP
+# =============================================================================
+vscode_setup
 
 
 # =============================================================================
-# 4. NVM + NODE.JS
-# =============================================================================
-
-
-# =============================================================================
-# 5. PHP + COMPOSER + LARAVEL
+# 5. NVM + NODE.JS
 # =============================================================================
 
 
 # =============================================================================
-# 6. SDKMAN + JAVA
+# 6. PHP + COMPOSER + LARAVEL
 # =============================================================================
 
 
 # =============================================================================
-# 7. GIT CONFIGURATION
+# 7. SDKMAN + JAVA
 # =============================================================================
 
 
 # =============================================================================
-# 8. SSH KEYS
+# 8. GIT CONFIGURATION
+# =============================================================================
+
+
+# =============================================================================
+# 9. SSH KEYS
 # =============================================================================

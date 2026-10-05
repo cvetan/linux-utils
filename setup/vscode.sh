@@ -27,8 +27,8 @@ _VSCODE_URL='https://packages.microsoft.com/repos/code'
 add_vscode_repo() {
     local key_tmp
 
-    sudo apt update
-    sudo apt install -y wget gpg apt-transport-https
+    _sudo apt update
+    _sudo apt install -y wget gpg apt-transport-https
 
     # The dearmored key goes to a temporary file, not the current directory: the
     # repo is meant to be runnable from anywhere, and dropping a .gpg into
@@ -43,18 +43,18 @@ add_vscode_repo() {
         return 1
     fi
 
-    sudo install -D -o root -g root -m 0644 "$key_tmp" "$_VSCODE_KEYRING"
+    _sudo install -D -o root -g root -m 0644 "$key_tmp" "$_VSCODE_KEYRING"
     rm -f "$key_tmp"
 
-    sudo tee "$_VSCODE_LIST" >/dev/null <<EOF
+    _sudo tee "$_VSCODE_LIST" >/dev/null <<EOF
 deb [arch=amd64,arm64,armhf signed-by=$_VSCODE_KEYRING] $_VSCODE_URL stable main
 EOF
 
-    sudo apt update
+    _sudo apt update
 }
 
 install_vscode() {
-    sudo apt install -y code
+    _sudo apt install -y code
 }
 
 vscode_setup() {

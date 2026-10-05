@@ -13,9 +13,10 @@ _setup_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_setup_dir/../lib/ui.sh"
 source "$_setup_dir/../lib/utils.sh"
 
-# Docker's own codename and architecture, resolved once. `UBUNTU_CODENAME` is
-# set by /etc/os-release on Debian derivatives but not on plain Ubuntu, hence the
-# fallback to VERSION_CODENAME.
+# Docker's own codename and architecture, resolved once. UBUNTU_CODENAME first:
+# /etc/os-release sets it on Ubuntu derivatives too (Linux Mint, Pop!_OS,
+# Zorin), where VERSION_CODENAME is the derivative's own codename and would not
+# exist in Docker's Ubuntu repository.
 _docker_suite() {
     local codename=''
     if [[ -r /etc/os-release ]]; then
@@ -31,32 +32,39 @@ _docker_suite() {
 remove_old_docker() {
     local pkg
     for pkg in docker.io docker-doc docker-compose docker-compose-v2 podman-docker containerd runc; do
-        sudo apt-get remove -y "$pkg" 2>/dev/null || true
+        _sudo apt-get remove -y "$pkg" 2>/dev/null || true
     done
 }
 
 add_docker_repo() {
-    sudo apt-get update
-    sudo apt-get install -y ca-certificates curl
-    sudo install -m 0755 -d /etc/apt/keyrings
-    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-        -o /etc/apt/keyrings/docker.asc
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
+    local suite
+    suite="$(_docker_suite)"
+    if [[ -z "$suite" ]]; then
+        error 'could not determine the Ubuntu codename for the Docker repository'
+        return 1
+    fi
 
-    sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
+    _sudo apt-get update
+    _sudo apt-get install -y ca-certificates curl
+    _sudo install -m 0755 -d /etc/apt/keyrings
+    _sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+        -o /etc/apt/keyrings/docker.asc
+    _sudo chmod a+r /etc/apt/keyrings/docker.asc
+
+    _sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/ubuntu
-Suites: $(_docker_suite)
+Suites: $suite
 Components: stable
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
 
-    sudo apt-get update
+    _sudo apt-get update
 }
 
 install_docker_packages() {
-    sudo apt install -y docker-ce docker-ce-cli containerd.io \
+    _sudo apt install -y docker-ce docker-ce-cli containerd.io \
         docker-buildx-plugin docker-compose-plugin
 }
 
@@ -70,14 +78,24 @@ docker_setup() {
         # failure, which is what a bare $(docker --version) does here.
         local version
         version="$(docker --version 2>/dev/null || printf 'version unavailable')"
-        info "Docker already installed ($version). Skipping."
+        info "Docker already installed ($version). Skipping install."
     else
         run_or_die 'Removing old Docker packages' remove_old_docker
         run_or_die 'Adding Docker repository'     add_docker_repo
         run_or_die 'Installing Docker packages'   install_docker_packages
-        # id -un, not $USER: $USER is unset under `env -i`, which is fatal with
-        # `set -u`.
-        run_or_die 'Adding user to docker group'  sudo usermod -aG docker "$(id -un)"
-        info 'Docker engine installed. Log out and back in for group changes to apply.'
+        info 'Docker engine installed.'
+    fi
+
+    # Group membership is fixed whether Docker was just installed or was already
+    # present. On a machine that already had Docker the user had never been added
+    # to the group, so `docker` kept asking for sudo. id -un, not $USER: $USER is
+    # unset under `env -i`, which is fatal with `set -u`.
+    if getent group docker >/dev/null 2>&1; then
+        if id -nG "$(id -un)" | tr ' ' '\n' | grep -qx docker; then
+            info 'User is already in the docker group.'
+        else
+            run_or_die 'Adding user to docker group' _sudo usermod -aG docker "$(id -un)"
+            info 'Docker group membership added. Log out and back in for it to apply.'
+        fi
     fi
 }

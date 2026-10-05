@@ -66,7 +66,7 @@ install_zsh_extras() {
 
 # ── Base .zshrc ──────────────────────────────────────────────────────────────
 write_zshrc() {
-    local zshrc="$HOME/.zshrc" backup
+    local zshrc="$HOME/.zshrc" backup escaped
 
     if grep -qF "$ZSHRC_MARKER" "$zshrc" 2>/dev/null; then
         info '.zshrc base config already applied. Skipping.'
@@ -79,13 +79,15 @@ write_zshrc() {
         warn "Existing .zshrc backed up to $backup"
     fi
 
-    # The here-doc is quoted so nothing expands now; $_OMZ_DIR and $HOME are
-    # written literally and resolved by zsh itself at startup.
+    # The here-doc is quoted so nothing expands now; $HOME and the $ZSH
+    # references below are written literally and resolved by zsh at startup.
+    # Only the install path goes through a sentinel, because $_OMZ_DIR can be a
+    # non-default directory when $ZSH was exported before this ran.
     cat > "$zshrc" <<'ZSHRC_EOF'
 # Managed by linux-utils (base config)
 
 # Path to your oh-my-zsh installation.
-export ZSH="$HOME/.oh-my-zsh"
+export ZSH="__OMZ_DIR__"
 
 # Powerlevel10k settings (must be set before oh-my-zsh is sourced)
 POWERLEVEL9K_MODE="powerline"
@@ -103,6 +105,13 @@ source $ZSH/oh-my-zsh.sh
 # ---- User configuration ----
 alias sail='sh $([ -f sail ] && echo sail || echo vendor/bin/sail)'
 ZSHRC_EOF
+
+    # Substitute the sentinel. Escape the sed delimiter and `&` (which means
+    # "the whole match" in a replacement) so a path containing them survives.
+    escaped="${_OMZ_DIR//\\/\\\\}"
+    escaped="${escaped//|/\\|}"
+    escaped="${escaped//&/\\&}"
+    sed -i "s|__OMZ_DIR__|${escaped}|" "$zshrc"
 
     info 'Base .zshrc written (theme, plugins, prompt, aliases).'
 }
@@ -128,7 +137,7 @@ set_zsh_default() {
         return 0
     fi
 
-    if sudo chsh -s "$zsh_bin" "$user"; then
+    if _sudo chsh -s "$zsh_bin" "$user"; then
         info 'Default shell set to zsh. Takes effect on next login.'
     else
         warn "Could not change default shell. Run manually: chsh -s $zsh_bin $user"
@@ -142,14 +151,18 @@ set_zsh_default() {
 extend_zshrc() {
     local zshrc="$HOME/.zshrc"
 
-    append_if_missing "$zshrc" '# bat alias' \
-        '\n# bat alias\nalias cat="bat --paging=never"'
-
-    append_if_missing "$zshrc" '# fd alias' \
-        '\n# fd alias (fd-find)\nalias fd="fdfind"'
-
+    # PATH first, so the `bat` symlink link_cli_aliases drops in ~/.local/bin is
+    # visible to the alias guard below when the shell starts.
     append_if_missing "$zshrc" '.local/bin' \
         '\nexport PATH="$HOME/.local/bin:$PATH"'
+
+    # Guarded: bat/fd-find are best-effort, so a machine without them must not
+    # end up with `cat` or `fd` pointing at a missing binary.
+    append_if_missing "$zshrc" '# bat alias' \
+        '\n# bat alias\ncommand -v bat >/dev/null && alias cat="bat --paging=never"'
+
+    append_if_missing "$zshrc" '# fd alias' \
+        '\n# fd alias (fd-find)\ncommand -v fdfind >/dev/null && alias fd="fdfind"'
 }
 
 # ── zsh_setup ────────────────────────────────────────────────────────────────

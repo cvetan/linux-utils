@@ -49,10 +49,14 @@ _req_check_bash() { (( BASH_VERSINFO[0] >= 4 )); }
 _req_detail_bash() { printf 'bash %s' "$BASH_VERSION"; }
 
 _req_check_apt() {
+    # Ubuntu-like only (Ubuntu itself, Linux Mint, Pop!_OS, Zorin, ...). Vanilla
+    # Debian also reports apt-get, but the base package set and Docker repo in
+    # setup/ are Ubuntu-specific, so accepting it here would let preflight pass
+    # and step 1 fail. Derivatives carry ID_LIKE=ubuntu.
     local distro id_like
     distro="$(_os_release ID)"; id_like="$(_os_release ID_LIKE)"
     distro="${distro,,} ${id_like,,}"
-    if [[ "$distro" == *debian* || "$distro" == *ubuntu* ]]; then
+    if [[ "$distro" == *ubuntu* ]]; then
         command_exists apt-get
     else
         return 1
