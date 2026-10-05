@@ -138,8 +138,8 @@ GB and several minutes per release.
 
 ## What gets installed
 
-`main.sh` runs the modules below in order. Steps 5 and 9 (nvm and SSH) are
-stubbed out; see [Status](#status).
+`main.sh` runs the modules below in order. Step 5 (nvm) is stubbed out; see
+[Status](#status).
 
 1. **System update & base packages** — `apt update` and `apt upgrade`, the
    `universe` and `multiverse` components, and the third-party PPAs listed under
@@ -176,7 +176,15 @@ stubbed out; see [Status](#status).
    prompted only when not already set), the default branch name (default `main`),
    `push.default current` and a set of everyday defaults. See
    [`setup/git.sh`](setup/git.sh).
-9. **SSH keys** — stubbed, no code yet.
+9. **SSH keys** — the plan is made up front: before anything is installed, the
+   run reports whether `SSH_KEYS_BUNDLE` is set or keys are present in `~/.ssh`,
+   asks whether to use them, and if you have neither it says SSH setup will be
+   skipped for now. It then adopts the keys you copy into `~/.ssh`: tightening
+   their permissions, and for any key without a host mapping asking which host it
+   belongs to and writing `~/.ssh/linux-utils.conf`. No key is ever overwritten,
+   and nothing is fetched from the network. Set `SSH_KEYS_BUNDLE` (a directory,
+   `.tar.gz`, `.tar` or `.zip`) to install from an offline bundle instead — the
+   reproducible, non-interactive path. See [`setup/ssh.sh`](setup/ssh.sh).
 
 ## Configuration
 
@@ -193,6 +201,9 @@ GIT_USER_NAME="Ada Lovelace"           # non-interactive git identity
 GIT_USER_EMAIL="ada@example.com"
 GIT_DEFAULT_BRANCH="main"              # name for new repositories
 GIT_CORE_EDITOR="code --wait"          # git commit editor; empty leaves it unset
+SSH_KEYS_BUNDLE=""                     # optional: install keys from an offline bundle
+SSH_KEYS_VERIFY="1"                    # after setup, `ssh -T` each configured host
+SSH_DIR="$HOME/.ssh"                   # where step 9 looks for keys / writes config
 ```
 
 Some settings are arrays edited in place rather than exported — the global
@@ -210,7 +221,7 @@ A few changes need a new login to take effect:
 
 ## Status
 
-`main.sh` runs seven of the nine steps:
+`main.sh` runs eight of the nine steps:
 
 | # | Step | Module |
 |---|---|---|
@@ -221,7 +232,8 @@ A few changes need a new login to take effect:
 | 6 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
 | 8 | Git configuration | [`setup/git.sh`](setup/git.sh) |
-| 5, 9 | nvm, SSH | stubbed sections in `main.sh`, no code yet |
+| 9 | SSH keys | [`setup/ssh.sh`](setup/ssh.sh) |
+| 5 | nvm | stubbed section in `main.sh`, no code yet |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
@@ -249,6 +261,50 @@ overrides it), the module sets `push.default current` plus
 `merge.conflictstyle zdiff3`, `diff.algorithm histogram` and `color.ui auto`,
 and points `core.editor` at `code --wait` when VS Code is present.
 
+[`setup/ssh.sh`](setup/ssh.sh) adopts the SSH keys already in `~/.ssh`. An
+up-front `ssh_preflight` (see [Before it runs](#before-it-runs)) decides whether
+to use a bundle, adopt the keys in `~/.ssh`, or skip before any install work
+begins. Since this repository is public and the module never fetches anything,
+the keys stay wherever you keep them — a MEGA download, a USB stick — and you
+copy them into `~/.ssh` yourself. The module then tightens their permissions and,
+for every key that has no host mapping yet, asks which host it belongs to and
+writes a `Host` block to `~/.ssh/linux-utils.conf`:
+
+```
+Found SSH key id_ed25519_personal — SHA256:…
+  ›  Host alias for id_ed25519_personal (blank to skip) github-personal
+  ›  HostName for github-personal (blank = github-personal) github.com
+  ›  User for github-personal (blank for none) git
+```
+
+A blank alias skips a key; without a terminal the prompts answer nothing and the
+key is left unmapped rather than guessed at. A key already referenced by an
+`IdentityFile` line — whether written here on a previous run or by hand — is
+never re-prompted, and only fingerprints are printed, so no key material reaches
+the run log. The blocks are pulled into `~/.ssh/config` by a single
+`Include linux-utils.conf` line prepended to it, because `ssh_config` is
+first-match-wins and the `Host` entries should take precedence over a catch-all;
+your own `~/.ssh/config` is otherwise untouched.
+
+Setting `SSH_KEYS_BUNDLE` installs from an offline bundle instead, which is the
+reproducible, non-interactive path:
+
+```
+ssh-bundle/
+├── keys/                 # → ~/.ssh, filenames kept as-is; private 600 / .pub 644
+│   ├── id_ed25519_personal
+│   ├── id_ed25519_personal.pub
+│   └── ...
+└── config.d/*.conf       # host blocks, concatenated into ~/.ssh/linux-utils.conf
+```
+
+A bundle is a directory, `.tar.gz`, `.tar` or `.zip`; `keys/` is preferred but a
+flat folder of key files also works, and a bundle with no `config.d/` leaves the
+managed config alone. An existing key is never overwritten — an identical file
+is reported and skipped, a differing one is left alone and warned about. Set
+`SSH_KEYS_VERIFY=1` to `ssh -T` every concrete host afterwards. See
+[`docs/ssh-keys.md`](docs/ssh-keys.md) for the bundle format and worked examples.
+
 ### Known gaps
 
 - `add_custom_repositories` re-adds every PPA and reinstalls the whole base set
@@ -268,6 +324,9 @@ linux-utils/
 │       ├── build.yml          # build + verify the .run on every PR and push
 │       └── release.yml        # …and attach it to a published release
 ├── README.md
+├── docs/
+│   ├── default-shell.md # why zsh runs second
+│   └── ssh-keys.md      # SSH key bundle format and example
 ├── Dockerfile           # disposable sandbox image for scripts/docker-test.sh
 ├── .dockerignore
 ├── main.sh              # entrypoint — owns shell options, logging, preflight
@@ -286,7 +345,8 @@ linux-utils/
     ├── php.sh           # PHP CLI from the archive + Composer
     ├── zsh.sh           # zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
     ├── vscode.sh        # VS Code from Microsoft's apt repository
-    └── sdkman.sh        # SDKMAN + Temurin JDK
+    ├── sdkman.sh        # SDKMAN + Temurin JDK
+    └── ssh.sh           # adopt ~/.ssh keys + host config, or an offline bundle
 ```
 
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only
@@ -422,6 +482,36 @@ edit the [Requirements](#requirements) bullets: the preflight reads the wording
 from there at run time, so a typo in that section shows up on your terminal as
 a mismatched or unverified check.
 
+### SSH keys up front
+
+Immediately after the run confirmation, `main.sh` calls `ssh_preflight`, so the
+SSH decision is made before anything is installed. It looks for a bundle, then
+for private keys in `~/.ssh`, and asks whether to use what it finds:
+
+```
+▶  SSH keys
+────────────────────────────────────────────────────────────
+  ✓  Found 2 SSH key(s) in /home/you/.ssh
+  ›  id_ed25519_personal, id_ed25519_work
+  ›  Set up SSH keys from ~/.ssh now? [Y/n]
+```
+
+With neither a bundle nor keys it reports that SSH setup will be skipped for now
+and carries on with the rest of the run:
+
+```
+▶  SSH keys
+────────────────────────────────────────────────────────────
+  !  No SSH keys in /home/you/.ssh and SSH_KEYS_BUNDLE is not set
+  ›  SSH setup will be skipped for now
+```
+
+The answer is remembered as a plan and step 9 carries it out, so SSH is decided
+once, up front, and never re-prompted. Detection here is dependency-free (it
+reads key headers rather than calling `ssh-keygen`), because it runs before step 1
+has installed `openssh-client`. Like every other confirmation, it is
+auto-approved by `SETUP_ASSUME_YES=1` or with no terminal.
+
 ### Unattended runs
 
 Two things must be true for `main.sh` to run with no terminal:
@@ -490,8 +580,7 @@ something_setup() {
 ```
 
 Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call. Sections 5 and 9 (nvm and SSH) are still
-stubbed out.
+section for the `*_setup` call. Section 5 (nvm) is still stubbed out.
 
 A few rules keep the layering intact:
 

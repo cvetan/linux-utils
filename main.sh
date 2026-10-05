@@ -37,6 +37,7 @@ source "$__repo_root/setup/vscode.sh"
 source "$__repo_root/setup/php.sh"
 source "$__repo_root/setup/sdkman.sh"
 source "$__repo_root/setup/git.sh"
+source "$__repo_root/setup/ssh.sh"
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
 # A trap is a process-wide setting, so it belongs to the entrypoint. `set -E`
@@ -75,6 +76,10 @@ banner 'DEVELOPMENT MACHINE SETUP'
 
 # Show README requirements, verify them on this machine, ask for confirmation.
 preflight || exit $?
+
+# Decide the SSH plan up front — bundle, ~/.ssh keys, or skip — while the user is
+# still at the terminal. ssh_setup (step 9) carries out whatever is chosen here.
+ssh_preflight
 
 # Cache sudo credentials once so every later step does not prompt again. Skipped
 # as root (nothing to cache) and without a TTY, where prompting would hang — an
@@ -133,3 +138,7 @@ git_setup
 # =============================================================================
 # 9. SSH KEYS
 # =============================================================================
+# Executes the plan ssh_preflight chose at the top of the run: adopt the keys in
+# ~/.ssh (permissions + host mapping prompts), install an offline bundle, or skip.
+# No network, and no key is ever overwritten.
+ssh_setup

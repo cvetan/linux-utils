@@ -60,6 +60,7 @@ readonly REQUIRED_FILES=(
     setup/git.sh
     setup/php.sh
     setup/sdkman.sh
+    setup/ssh.sh
     setup/vscode.sh
     setup/zsh.sh
 )
