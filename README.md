@@ -197,7 +197,7 @@ A few changes need a new login to take effect:
 
 ## v2 status
 
-`main.sh` runs four of the eight steps, plus the VS Code module that is not one
+`main.sh` runs five of the eight steps, plus the VS Code module that is not one
 of them:
 
 | # | Step | v2 |
@@ -206,12 +206,25 @@ of them:
 | 2 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
 | 3 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
 | 4 | Visual Studio Code (not a v1 step) | [`setup/vscode.sh`](setup/vscode.sh) |
+| 6 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
 | 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
-| 5–6, 8–9 | nvm, PHP, Git, SSH | stubbed sections in `main.sh`, no code yet |
+| 5, 8–9 | nvm, Git, SSH | stubbed sections in `main.sh`, no code yet |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
 Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
 `vscode_setup` call there if a machine should not get it.
+
+[`setup/php.sh`](setup/php.sh) installs the distribution's own PHP CLI — no
+third-party PPA, so the version follows the Ubuntu release (8.1 on 22.04, 8.3 on
+24.04, 8.5 on 26.04) — with the common extensions. This is local tooling only:
+projects run their own PHP from their Docker setup, so there is no `php-fpm` or
+web server here. Composer uses the local-installation flow from
+[getcomposer.org](https://getcomposer.org/download/): the installer's SHA-384 is
+verified against the signature Composer publishes, and the phar is written to
+`~/.local/bin/composer` (no sudo, so Composer's global config stays in your
+home). Composer's global bin (`~/.config/composer/vendor/bin`) is appended to
+`.zshrc`. Global packages come from the `_COMPOSER_GLOBAL_PACKAGES` array in the
+module, empty by default — add an entry such as `'phpunit/phpunit'` and re-run.
 
 The v2-only features — the [preflight](#before-it-runs), the `ERR` trap,
 `SETUP_ASSUME_YES`, `SOFT_PREFLIGHT` — do not exist in v1; v1 has no
@@ -226,8 +239,8 @@ confirmation prompt at all.
   `libreoffice`, `grub-customizer`, `pipx`, plus `ubuntu-restricted-extras`.
   It also installs `bat` and `fd-find` (aliased to `cat` and `fd`, with the
   `batcat` → `bat` symlink) and `tmux`. It does **not** install v1's `jq`,
-  `ripgrep`, `fzf` or `tree`; sections 5–9, once ported, are where the rest of
-  v1's set would come back.
+  `ripgrep`, `fzf` or `tree`; sections 5, 8 and 9, once ported, are where the
+  rest of v1's set would come back.
 - **Docker's repo is added in deb822 format.** v2 writes
   `/etc/apt/sources.list.d/docker.sources` and keeps the upstream key
   ASCII-armored as `docker.asc`, referenced by `Signed-By`. v1 dearmors it into
@@ -273,8 +286,10 @@ linux-utils/
     ├── dev-setup.sh     # v1 monolith — legacy, superseded
     ├── base_packages.sh # v2: apt repositories + base packages
     ├── docker.sh        # v2: Docker Engine from the official repo
+    ├── php.sh           # v2: PHP CLI from the archive + Composer
     ├── zsh.sh           # v2: zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
-    └── vscode.sh        # v2: VS Code from Microsoft's apt repository
+    ├── vscode.sh        # v2: VS Code from Microsoft's apt repository
+    └── sdkman.sh        # v2: SDKMAN + Temurin JDK
 ```
 
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only
@@ -476,8 +491,8 @@ something_setup() {
 ```
 
 Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call. Sections 5, 6, 8 and 9 (nvm, PHP, Git, SSH)
-are still stubbed out and waiting to be ported from `setup/dev-setup.sh`.
+section for the `*_setup` call. Sections 5, 8 and 9 (nvm, Git, SSH) are still
+stubbed out and waiting to be ported from `setup/dev-setup.sh`.
 
 A few rules keep the layering intact:
 
@@ -509,7 +524,9 @@ A few rules keep the layering intact:
   archives (LibreOffice, Solaar, mpv, deadbeef, gnome-mpv, grub-customizer, GDM
   settings) and installs packages straight out of them, so dropping the `add-apt-repository`
   lines means also dropping the packages that only exist there. v1 adds none of
-  these; its only third-party archive is Ondřej's PHP PPA, in section 5.
+  these; its only third-party archive is Ondřej's PHP PPA, in section 5. v2's
+  `setup/php.sh` deliberately does not add that PPA: it installs the distribution's
+  own PHP, so the version tracks the Ubuntu release rather than upstream.
 - **A PPA without a suite for your Ubuntu is skipped, never fatal.** `apt update`
   exits 100 on any configured repository it cannot fetch, so one dead PPA would
   otherwise abort the whole run at step 1 — which is exactly what

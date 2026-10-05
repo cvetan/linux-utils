@@ -34,6 +34,7 @@ source "$__repo_root/setup/base_packages.sh"
 source "$__repo_root/setup/docker.sh"
 source "$__repo_root/setup/zsh.sh"
 source "$__repo_root/setup/vscode.sh"
+source "$__repo_root/setup/php.sh"
 source "$__repo_root/setup/sdkman.sh"
 
 # ── ERR trap ──────────────────────────────────────────────────────────────────
@@ -109,8 +110,9 @@ vscode_setup
 
 
 # =============================================================================
-# 6. PHP + COMPOSER + LARAVEL
+# 6. PHP + COMPOSER
 # =============================================================================
+php_setup
 
 
 # =============================================================================
