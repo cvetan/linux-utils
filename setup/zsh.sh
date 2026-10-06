@@ -19,6 +19,12 @@ source "$_setup_dir/../lib/utils.sh"
 # mean.
 _OMZ_DIR="${ZSH:-$HOME/.oh-my-zsh}"
 
+# Set by zsh_setup before Oh-My-Zsh runs. write_zshrc only writes the base
+# template when there was no ~/.zshrc at the start of the step (or over the
+# stock file Oh-My-Zsh just created on a fresh machine); a config the user
+# already owned is never overwritten.
+_ZSHRC_PREEXISTED=0
+
 # Marker for the block we own in .zshrc. Later steps (Node, SDKMAN, ...) append to
 # the same file, so it is deliberately NOT overwritten on re-runs.
 ZSHRC_MARKER='# Managed by linux-utils (base config)'
@@ -75,6 +81,17 @@ write_zshrc() {
 
     if grep -qF "$ZSHRC_MARKER" "$zshrc" 2>/dev/null; then
         info '.zshrc base config already applied. Skipping.'
+        return 0
+    fi
+
+    # An existing ~/.zshrc belongs to the user: p10k settings, PATH exports and
+    # other customisation we cannot reconstruct. Never rewrite it — only the
+    # idempotent appends in extend_zshrc_path_aliases (and the later SDKMAN /
+    # Composer steps) touch it. The base template is for a machine with no
+    # config at the start of this step, or one whose stock Oh-My-Zsh template
+    # was just created.
+    if [[ -f "$zshrc" && "${_ZSHRC_PREEXISTED:-0}" == 1 ]]; then
+        info 'Existing .zshrc kept — not overwriting your shell configuration.'
         return 0
     fi
 
@@ -173,6 +190,9 @@ extend_zshrc_path_aliases() {
 # ── zsh_setup ────────────────────────────────────────────────────────────────
 zsh_setup() {
     section 'Zsh + Oh-My-Zsh'
+
+    _ZSHRC_PREEXISTED=0
+    [[ -f "$HOME/.zshrc" ]] && _ZSHRC_PREEXISTED=1
 
     install_oh_my_zsh
     install_zsh_extras

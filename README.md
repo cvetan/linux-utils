@@ -552,7 +552,8 @@ the requirements and proving them against your machine:
   ✓  Ubuntu or an Ubuntu derivative, apt based — Ubuntu 24.04.1 LTS, apt: /usr/bin/apt
   ✓  sudo available — the script will prompt for your password — sudo: /usr/bin/sudo
   ✓  All requirements satisfied
-  ›  Run the setup now? [Y/n]
+  ›  Run the setup now?
+  [Y/n]
 ```
 
 The wording of each requirement is **not** hardcoded anywhere — it is parsed out
@@ -585,7 +586,8 @@ for private keys in `~/.ssh`, and asks whether to use what it finds:
 ────────────────────────────────────────────────────────────
   ✓  Found 2 SSH key(s) in /home/you/.ssh
   ›  id_ed25519_personal, id_ed25519_work
-  ›  Set up SSH keys from ~/.ssh now? [Y/n]
+  ›  Set up SSH keys from ~/.ssh now?
+  [Y/n]
 ```
 
 With neither a bundle nor keys it reports that SSH setup will be skipped for now
