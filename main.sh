@@ -66,9 +66,14 @@ _on_error() {
     # handler whose job is to report that something else went wrong.
     printf '  %s✗%s  unexpected failure at %s:%s (exit %s)\n' \
         "${RED:-}" "${NC:-}" "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}" "$line" "$rc" >&2
+    spinner_cleanup
     exit "$rc"
 }
 trap _on_error ERR
+
+# A disowned spinner outlives the shell: on any exit (normal, error, or signal)
+# stop it so it does not keep redrawing over the user's prompt.
+trap spinner_cleanup EXIT
 
 # run_or_die "Label" cmd … — run(), except a failure ends the program. Libraries
 # return a status; the program decides that a failed step is fatal.

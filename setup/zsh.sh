@@ -19,10 +19,11 @@ source "$_setup_dir/../lib/utils.sh"
 # mean.
 _OMZ_DIR="${ZSH:-$HOME/.oh-my-zsh}"
 
-# Set by install_oh_my_zsh when it actually installs. write_zshrc only writes
-# the base template over the stock file Oh-My-Zsh just created (or when there is
-# no ~/.zshrc yet); a config the user already owns is never overwritten.
-_OMZ_FRESHLY_INSTALLED=0
+# Set by zsh_setup before Oh-My-Zsh runs. write_zshrc only writes the base
+# template when there was no ~/.zshrc at the start of the step (or over the
+# stock file Oh-My-Zsh just created on a fresh machine); a config the user
+# already owned is never overwritten.
+_ZSHRC_PREEXISTED=0
 
 # Marker for the block we own in .zshrc. Later steps (Node, SDKMAN, ...) append to
 # the same file, so it is deliberately NOT overwritten on re-runs.
@@ -34,8 +35,6 @@ install_oh_my_zsh() {
         info "Oh-My-Zsh already installed ($_OMZ_DIR). Skipping."
         return 0
     fi
-
-    _OMZ_FRESHLY_INSTALLED=1
 
     # ZSH is passed explicitly rather than inherited: an exported ZSH pointing
     # somewhere else would make the installer refuse to run.
@@ -89,8 +88,9 @@ write_zshrc() {
     # other customisation we cannot reconstruct. Never rewrite it — only the
     # idempotent appends in extend_zshrc_path_aliases (and the later SDKMAN /
     # Composer steps) touch it. The base template is for a machine with no
-    # config, or one whose stock Oh-My-Zsh template we just created.
-    if [[ -f "$zshrc" && "${_OMZ_FRESHLY_INSTALLED:-0}" != 1 ]]; then
+    # config at the start of this step, or one whose stock Oh-My-Zsh template
+    # was just created.
+    if [[ -f "$zshrc" && "${_ZSHRC_PREEXISTED:-0}" == 1 ]]; then
         info 'Existing .zshrc kept — not overwriting your shell configuration.'
         return 0
     fi
@@ -190,6 +190,9 @@ extend_zshrc_path_aliases() {
 # ── zsh_setup ────────────────────────────────────────────────────────────────
 zsh_setup() {
     section 'Zsh + Oh-My-Zsh'
+
+    _ZSHRC_PREEXISTED=0
+    [[ -f "$HOME/.zshrc" ]] && _ZSHRC_PREEXISTED=1
 
     install_oh_my_zsh
     install_zsh_extras

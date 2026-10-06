@@ -22,22 +22,25 @@ _sudo() {
         return
     fi
 
-    # Unless the sudo credential is still cached, sudo prompts for a password on
-    # the terminal. If a spinner is running, its \r redraw erases the prompt
-    # before it can be read, so pause it around the authentication, then put it
-    # back. `sudo -n true` is silent when the credential is cached, so the common
-    # case never touches the spinner.
+    # A still-cached credential needs no prompt: leave any running spinner alone.
+    if sudo -n true 2>/dev/null; then
+        sudo "$@"
+        return
+    fi
+
+    # Credential not cached — sudo will prompt for a password. If a spinner is
+    # running, its \r redraw erases the prompt before it can be read, so pause it
+    # around the authentication, then put it back. `sudo -v` refreshes the
+    # credential once so later _sudo calls hit the fast path above.
     local paused=0
     if declare -F spinner_pause >/dev/null 2>&1 && [[ -n "${_SPINNER_PID:-}" ]]; then
         spinner_pause
         paused=1
     fi
 
-    if ! sudo -n true 2>/dev/null; then
-        if ! sudo -v; then
-            if (( paused )); then spinner_resume; fi
-            return 1
-        fi
+    if ! sudo -v; then
+        if (( paused )); then spinner_resume; fi
+        return 1
     fi
 
     if (( paused )); then spinner_resume; fi

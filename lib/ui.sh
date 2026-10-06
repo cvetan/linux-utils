@@ -166,6 +166,22 @@ spinner_resume() {
     _spinner_spawn "$_SPINNER_LABEL"
 }
 
+# Kill any running spinner and reset all state. Safe to call at any time —
+# main.sh wires it to EXIT (and the ERR handler) so an aborted run never leaves
+# a disowned spinner redrawing over the shell prompt, or a stale depth/paused
+# counter for a later stage to trip over. No erase: on exit we must not blank the
+# error line that triggered the cleanup.
+spinner_cleanup() {
+    if [[ -n "${_SPINNER_PID:-}" ]]; then
+        kill "$_SPINNER_PID" 2>/dev/null || true
+        wait "$_SPINNER_PID" 2>/dev/null || true
+        _SPINNER_PID=''
+    fi
+    _SPINNER_DEPTH=0
+    _SPINNER_PAUSED=0
+    _SPINNER_LABEL=''
+}
+
 # ── Inline markdown ───────────────────────────────────────────────────────────
 # md_inline "text" — terminal rendering of `code` (bold cyan) and **bold**.
 md_inline() {
