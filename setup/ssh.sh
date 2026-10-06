@@ -350,9 +350,15 @@ prompt_host_block() {
 # here earlier or by hand — are left alone, which keeps a re-run quiet. Without a
 # terminal `ask` yields nothing and the key is skipped rather than guessed at.
 map_unmapped_keys() {
-    local keyfile mapped=0 skipped=0 file
+    local keyfile mapped=0 skipped=0
+    local -a keys=()
 
-    while IFS= read -r keyfile; do
+    # Collect first, then iterate: a `while read … done < <(discover_keys …)`
+    # loop redirects fd 0 to the process substitution, so `ask`'s `[[ -t 0 ]]`
+    # reports "no terminal" and silently skips every prompt.
+    mapfile -t keys < <(discover_keys "$SSH_DIR")
+
+    for keyfile in ${keys[@]+"${keys[@]}"}; do
         [[ -n "$keyfile" ]] || continue
         if _key_is_mapped "$keyfile"; then
             info "Host mapping already present for $(basename "$keyfile")"
@@ -363,7 +369,7 @@ map_unmapped_keys() {
         else
             skipped=$(( skipped + 1 ))
         fi
-    done < <(discover_keys "$SSH_DIR")
+    done
 
     if (( mapped > 0 )); then
         info "Mapped $mapped key(s) in $SSH_DIR/$_SSH_MANAGED_CONF"

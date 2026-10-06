@@ -76,6 +76,9 @@ step()    { printf '  %s›%s  %s\n' "$BLUE" "$NC" "$*"; }
 
 # ── Spinner ───────────────────────────────────────────────────────────────────
 _SPINNER_PID=''
+_SPINNER_LABEL=''
+_SPINNER_DEPTH=0
+_SPINNER_PAUSED=0
 _SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 # No TTY, no spinner. The frames are written without a newline and only make
@@ -85,10 +88,9 @@ _SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 # the next section. spinner_start is a no-op there and spinner_stop a no-op too.
 spinner_supported() { [[ -t 1 ]]; }
 
-spinner_start() {
+# _spinner_spawn "msg" — launch the redraw loop and record its pid.
+_spinner_spawn() {
     local msg="${1:-}"
-
-    spinner_supported || return 0
 
     (
         local i=0
@@ -103,8 +105,29 @@ spinner_start() {
     disown "${_SPINNER_PID:-}" 2>/dev/null || true
 }
 
+# spinner_start "msg" — begin (or nest into) a spinner. Only the outermost call
+# owns a process. A nested `run` — add_custom_repositories is itself invoked
+# through `run` while it calls `run` per PPA — would otherwise overwrite
+# _SPINNER_PID and orphan the outer loop, which then redraws forever over every
+# later prompt (including sudo's).
+spinner_start() {
+    local msg="${1:-}"
+
+    _SPINNER_DEPTH=$(( _SPINNER_DEPTH + 1 ))
+    (( _SPINNER_DEPTH == 1 )) || return 0
+
+    _SPINNER_LABEL="$msg"
+    spinner_supported || return 0
+    _spinner_spawn "$msg"
+}
+
 spinner_stop() {
     local label="${1:-}"
+
+    if (( _SPINNER_DEPTH > 0 )); then
+        _SPINNER_DEPTH=$(( _SPINNER_DEPTH - 1 ))
+    fi
+    (( _SPINNER_DEPTH == 0 )) || return 0
 
     if [[ -n "${_SPINNER_PID:-}" ]]; then
         kill "$_SPINNER_PID" 2>/dev/null || true
@@ -113,9 +136,34 @@ spinner_stop() {
         # Only erase the line if we actually drew one.
         printf '\r\033[2K' || true
     fi
+    _SPINNER_LABEL=''
+    _SPINNER_PAUSED=0
 
     [[ -n "$label" ]] && info "$label"
     return 0
+}
+
+# spinner_pause / spinner_resume — hide the spinner around an interactive prompt
+# (sudo asking for a password) and restore it afterwards. The depth counter is
+# left alone, so the enclosing run's spinner_stop still balances its start.
+spinner_pause() {
+    _SPINNER_PAUSED=0
+    [[ -n "${_SPINNER_PID:-}" ]] || return 0
+
+    kill "$_SPINNER_PID" 2>/dev/null || true
+    wait "$_SPINNER_PID" 2>/dev/null || true
+    _SPINNER_PID=''
+    _SPINNER_PAUSED=1
+    printf '\r\033[2K' || true
+}
+
+spinner_resume() {
+    (( _SPINNER_PAUSED )) || return 0
+    _SPINNER_PAUSED=0
+    [[ -n "${_SPINNER_LABEL:-}" ]] || return 0
+    [[ -z "${_SPINNER_PID:-}" ]] || return 0
+    spinner_supported || return 0
+    _spinner_spawn "$_SPINNER_LABEL"
 }
 
 # ── Inline markdown ───────────────────────────────────────────────────────────
@@ -154,8 +202,11 @@ prompt_yes_no() {
     local prompt="${1:-Continue?}" reply=''
 
     while true; do
-        read -r -p "  ${CYAN}›${NC}  ${BOLD}${prompt}${NC} ${CYAN}[Y/n]${NC} " \
-            reply || return 1
+        # Question on its own line, [Y/n] on the next: a long prompt (Xbox,
+        # Firefox, NVIDIA) wraps past the terminal width, which pushes the
+        # marker off-screen where the following spinner can overwrite it.
+        printf '  %s›%s  %s%s%s\n' "$CYAN" "$NC" "$BOLD" "$prompt" "$NC" >&2
+        read -r -p "  ${CYAN}[Y/n]${NC} " reply || return 1
         case "${reply,,}" in
             ''|y|yes) return 0 ;;
             n|no)     return 1 ;;

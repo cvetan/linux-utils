@@ -19,9 +19,29 @@ command_exists() { command -v "$1" &>/dev/null; }
 _sudo() {
     if (( EUID == 0 )); then
         "$@"
-    else
-        sudo "$@"
+        return
     fi
+
+    # Unless the sudo credential is still cached, sudo prompts for a password on
+    # the terminal. If a spinner is running, its \r redraw erases the prompt
+    # before it can be read, so pause it around the authentication, then put it
+    # back. `sudo -n true` is silent when the credential is cached, so the common
+    # case never touches the spinner.
+    local paused=0
+    if declare -F spinner_pause >/dev/null 2>&1 && [[ -n "${_SPINNER_PID:-}" ]]; then
+        spinner_pause
+        paused=1
+    fi
+
+    if ! sudo -n true 2>/dev/null; then
+        if ! sudo -v; then
+            if (( paused )); then spinner_resume; fi
+            return 1
+        fi
+    fi
+
+    if (( paused )); then spinner_resume; fi
+    sudo "$@"
 }
 
 # append_if_missing file marker content — the idempotency primitive for editing
