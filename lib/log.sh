@@ -29,7 +29,11 @@ log_tail() {
 # Output is appended to $LOG_FILE. On failure the tail of the log is printed and
 # the command's exit status is returned — nothing is exited from here.
 run() {
-    local label="${1:?label required}"
+    if (( $# < 2 )); then
+        error 'run: label and command required'
+        return 2
+    fi
+    local label="$1"
     shift
     local exit_code=0
 

@@ -97,9 +97,14 @@ _trim() {
 }
 
 # readme_section "Heading" [file] — print the body of `## Heading` in a markdown
-# file, stopping at the next heading. Returns 1 if the file is unreadable.
+# file, stopping at the next heading. Returns 1 if the file is unreadable and
+# 2 when no heading was given.
 readme_section() {
-    local heading="${1:?heading required}"
+    if (( $# < 1 )) || [[ -z "${1:-}" ]]; then
+        error 'readme_section: heading required'
+        return 2
+    fi
+    local heading="$1"
     local file="${2:-$(_preflight_default_readme)}"
     local line='' heading_text='' inside=0
 
@@ -273,8 +278,12 @@ confirm() {
 # pipe, so `-t 1` would be false by construction and the menu would never show.
 # The menu and the note are drawn on stderr, which is the terminal that matters.
 choose() {
-    local prompt="${1:?prompt required}" default="${2:-1}"; shift 2
-    local -a items=( "$@" )
+    if (( $# < 1 )); then
+        error 'choose: prompt required'
+        return 2
+    fi
+    local prompt="$1" default="${2:-1}"
+    local -a items=( "${@:3}" )
     (( ${#items[@]} > 0 )) || { error 'choose: no items to choose from'; return 1; }
     (( default >= 1 && default <= ${#items[@]} )) || default=1
 
@@ -296,7 +305,11 @@ choose() {
 # which redirects stdout to a pipe, so `-t 1` is false by construction. The
 # prompt and any note are drawn on stderr, which is the terminal that matters.
 ask() {
-    local prompt="${1:?prompt required}" default="${2:-}"
+    if (( $# < 1 )); then
+        error 'ask: prompt required'
+        return 2
+    fi
+    local prompt="$1" default="${2:-}"
 
     if [[ "${SETUP_ASSUME_YES:-0}" == "1" || ! -t 0 ]]; then
         if [[ -z "$default" ]]; then
@@ -308,6 +321,191 @@ ask() {
         return 0
     fi
     prompt_input "$prompt" "$default"
+}
+
+# ── _interactive_ok ───────────────────────────────────────────────────────────
+# Can an arrow-key list actually be shown and read? The keys arrive on stdin
+# and the menu is drawn on stderr (a caller captures stdout), so both must be
+# terminals — `main.sh 2>log` would otherwise wait for keys nobody can see —
+# TERM must render the ANSI the picker draws with, and the window must be at
+# least 6x15: an item row needs 14 columns and the shortest possible frame
+# needs 5 lines (those limits must match the geometry floor in ui.sh's
+# _prompt_picker, which draws at 80x24 when the size is unreadable). The
+# select_* wrappers fall back to their non-interactive path when this fails.
+_interactive_ok() {
+    [[ -t 0 && -t 2 && ${TERM:-dumb} != dumb ]] || return 1
+
+    # Size unreadable: assume usable — only a size we could read and know to
+    # be too small rules the menu out.
+    local sz=''
+    sz="$(stty size 2>/dev/null)" || sz=''
+    [[ -n "$sz" ]] || return 0
+    [[ "$sz" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]] || return 0
+    (( BASH_REMATCH[1] >= 6 && BASH_REMATCH[2] >= 15 ))
+}
+
+# _select_fallback_note "prompt" — explain why a selection just answered
+# itself. Three cases: SETUP_ASSUME_YES was asked for (no prompts, no note);
+# no terminal at all (documented behaviour, nothing to explain); a terminal
+# that cannot show the menu — stderr redirected, a TERM that cannot draw it, or
+# a window too small for it.
+_select_fallback_note() {
+    local prompt="${1:-}" reason=''
+    [[ "${SETUP_ASSUME_YES:-0}" != "1" ]] || return 0
+    [[ -t 0 ]] || return 0
+    if _interactive_ok; then return 0; fi
+
+    if [[ ! -t 2 ]]; then
+        reason='stderr is not a terminal, the menu would be invisible'
+    elif [[ ${TERM:-dumb} == dumb ]]; then
+        reason="TERM=${TERM:-unset} cannot draw the menu"
+    else
+        local sz=''
+        sz="$(stty size 2>/dev/null)" || sz=''
+        if [[ "$sz" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+            reason="the window is ${BASH_REMATCH[2]}x${BASH_REMATCH[1]}, too small for the checklist"
+        else
+            reason='the window cannot show the checklist'
+        fi
+    fi
+    step "$prompt — $reason; selecting non-interactively" >&2
+}
+
+# ── select_one "prompt" "default_id" "id|label" ... ──────────────────────────
+# A single-selection with the same non-interactive policy as confirm/choose/ask:
+# with SETUP_ASSUME_YES=1, or no usable terminal, it resolves `default_id`
+# without reading — falling back to the first item when the id is absent from
+# the list, the clamp prompt_choice applies to its 1-based index. Interactively
+# it hands the terminal to prompt_select_one, whose cursor starts on that same
+# resolved id. The chosen id is printed to stdout, so a caller captures it with
+# $(...). Returns 1 on an interactive abort (q / Ctrl-D), 2 when there is
+# nothing to choose from or the arguments are unusable, so a caller can write
+# `id="$(select_one …)" || return`.
+#
+# The terminal check is on stdin and stderr, exactly like select_steps: the
+# caller captures the value with $(...), which redirects stdout to a pipe, so
+# `-t 1` would be false by construction and the menu would never show. The menu
+# and any note are drawn on stderr, the terminal that matters.
+select_one() {
+    if (( $# < 1 )); then
+        error 'select_one: prompt required'
+        return 2
+    fi
+    local prompt="$1" default="${2:-}"
+    local -a specs=( "${@:3}" )
+    local spec resolved='' resolved_label=''
+
+    (( ${#specs[@]} > 0 )) || { error 'select_one: no items to choose from'; return 2; }
+
+    # One pass: take `default` when a spec carries its id, otherwise remember
+    # the first spec as the fallback — so an unknown default still resolves to a
+    # real item instead of printing an id the menu never showed.
+    for spec in "${specs[@]}"; do
+        if [[ -n "$default" && "${spec%%|*}" == "$default" ]]; then
+            resolved="$default"
+            resolved_label="${spec#*|}"
+            break
+        fi
+        if [[ -z "$resolved" ]]; then
+            resolved="${spec%%|*}"
+            resolved_label="${spec#*|}"
+        fi
+    done
+
+    _select_fallback_note "$prompt"
+
+    if [[ "${SETUP_ASSUME_YES:-0}" == "1" ]] || ! _interactive_ok; then
+        step "$prompt — $resolved_label (auto-selected)" >&2
+        printf '%s\n' "$resolved"
+        return 0
+    fi
+
+    prompt_select_one "$prompt" "$resolved" "${specs[@]}"
+}
+
+# ── select_steps "prompt" "required_id" "id|label" ... ────────────────────────
+# A multi-select with the same non-interactive policy as confirm/choose/ask:
+# with SETUP_ASSUME_YES=1 or no usable terminal it selects every step (minus
+# SKIP_STEPS, a space-, tab- or comma-separated list of step ids) without
+# reading. Interactively it hands the terminal to prompt_multiselect,
+# pre-deselecting any SKIP_STEPS ids so the blocklist also seeds the
+# checklist. The selected ids are printed to stdout, one per line, so a caller
+# captures them with $(...). Returns 1 on an interactive abort (q / Ctrl-D) and
+# 2 when there is nothing to select from or the arguments are unusable.
+#
+# The terminal check is on stdin and stderr, not stdout: the caller captures
+# the selection with $(...), which redirects stdout to a pipe, so `-t 1` would
+# be false by construction and the checklist would never show. The menu is
+# drawn on stderr, the terminal that matters, exactly like choose/ask.
+select_steps() {
+    if (( $# < 1 )); then
+        error 'select_steps: prompt required'
+        return 2
+    fi
+    local prompt="$1" required="${2:-}"
+    local -a specs=( "${@:3}" )
+    local raw="${SKIP_STEPS:-}" spec known
+    local -a skip_ids=()
+    local skip_pat=' '
+
+    (( ${#specs[@]} > 0 )) || { error 'select_steps: no steps to select from'; return 2; }
+
+    if [[ -n "$raw" ]]; then
+        # Commas are separators too, and any whitespace splits. Newlines and
+        # tabs are turned into spaces first: `read` stops at the first newline
+        # and `<<<` supplies one of its own, so splitting on it directly would
+        # silently drop every id after the first line-break.
+        raw="${raw//,/ }"
+        raw="${raw//$'\n'/ }"
+        raw="${raw//$'\t'/ }"
+        IFS=' ' read -r -a skip_ids <<< "$raw" || true
+        local s
+        for s in "${skip_ids[@]}"; do
+            [[ -n "$s" ]] || continue
+            skip_pat+="$s "
+            known=0
+            for spec in "${specs[@]}"; do
+                [[ "${spec%%|*}" == "$s" ]] && { known=1; break; }
+            done
+            (( known )) || warn "SKIP_STEPS: unknown step '$s' — ignored"
+        done
+    fi
+
+    _select_fallback_note "$prompt"
+
+    if [[ "${SETUP_ASSUME_YES:-0}" == "1" ]] || ! _interactive_ok; then
+        _select_steps_unattended "$prompt" "$required" "$skip_pat" "${specs[@]}"
+    else
+        prompt_multiselect "$prompt" "$required" "$skip_pat" "${specs[@]}"
+    fi
+}
+
+# _select_steps_unattended — the no-terminal path of select_steps: every step id
+# except the SKIP_STEPS blocklist, with `required` forced in regardless. Ids go
+# to stdout; a note about what was skipped goes to stderr.
+_select_steps_unattended() {
+    if (( $# < 3 )); then
+        error '_select_steps_unattended: prompt, required and skip pattern required'
+        return 2
+    fi
+    local prompt="$1" required="$2" skip_pat="$3"
+    local -a specs=( "${@:4}" ) out=()
+    local spec id
+    for spec in "${specs[@]}"; do
+        id="${spec%%|*}"
+        if [[ "$id" == "$required" ]] || [[ "$skip_pat" != *" $id "* ]]; then
+            out+=( "$id" )
+        fi
+    done
+    if [[ -n "${SKIP_STEPS:-}" ]]; then
+        step "$prompt — SKIP_STEPS: ${SKIP_STEPS}" >&2
+    fi
+    # A blank line would reach the caller as an empty "id" (and an empty
+    # selection when everything, including the pattern, is skipped).
+    if (( ${#out[@]} )); then
+        printf '%s\n' "${out[@]}"
+    fi
+    return 0
 }
 
 # ── preflight [file] ──────────────────────────────────────────────────────────

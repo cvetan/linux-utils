@@ -162,8 +162,9 @@ GB and several minutes per release.
    distro packages), including Buildx and Compose v2 plugins. Conflicting legacy
    packages (`docker.io`, `podman-docker`, `containerd`, …) are removed first, and
    your user is added to the `docker` group.
-4. **Visual Studio Code** — installed from Microsoft's apt repository. Remove
-   the `vscode_setup` call in `main.sh` if a machine should not get it.
+4. **Visual Studio Code** — installed from Microsoft's apt repository.
+   Deselect it at the `Steps to run` prompt (or `SKIP_STEPS=vscode`) if a
+   machine should not get it.
 5. **Node.js + npm** — the distribution's own Node and npm, no third-party PPA
    and no nvm, so the version tracks the Ubuntu release (12 on 22.04, 18 on
    24.04, 22 on 26.04). Debian/Ubuntu build `nodejs` `--without-npm`, so `npm`
@@ -237,7 +238,13 @@ INSTALL_XBOX=""                        # optional: 1 installs, 0 skips, unset pr
 XBOX_DONGLE_IDS=""                     # optional override; empty auto-detects the attached dongle
 INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
 NVIDIA_DRIVER=""                       # empty = latest proprietary; a branch (e.g. 580) pins it; "recommended" defers to Ubuntu
+SKIP_STEPS=""                          # optional: space-, tab- or comma-separated step ids to skip (e.g. "vscode php nvidia")
 ```
+
+`SKIP_STEPS` lists steps to skip, by their id in the [Status](#status) table.
+Interactively it pre-deselects those steps in the checklist; in an unattended run
+it is the only selection — every step not listed runs, and step 1 is always
+included regardless. A listed id that names no step is warned about and ignored.
 
 Some settings are arrays edited in place rather than exported — the global
 Composer packages in `_COMPOSER_GLOBAL_PACKAGES` in `setup/php.sh` and the
@@ -257,7 +264,9 @@ A few changes need a new login to take effect:
 
 ## Status
 
-`main.sh` runs all twelve steps:
+`main.sh` runs the twelve steps below, in order, by default; each can be
+deselected at the `Steps to run` prompt (see
+[Before it runs](#before-it-runs)) or skipped with `SKIP_STEPS`.
 
 | # | Step | Module |
 |---|---|---|
@@ -275,8 +284,9 @@ A few changes need a new login to take effect:
 | 12 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
-Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
-`vscode_setup` call there if a machine should not get it.
+Microsoft's apt repository. It is called from `main.sh` as step 4; deselect it
+at the `Steps to run` prompt (or `SKIP_STEPS=vscode`) if a machine should not
+get it.
 
 [`setup/php.sh`](setup/php.sh) installs the distribution's own PHP CLI — no
 third-party PPA, so the version follows the Ubuntu release (8.1 on 22.04, 8.3 on
@@ -444,7 +454,9 @@ linux-utils/
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only
 file that runs; everything else is sourced. The split mirrors the split inside
 each step: a `setup/*.sh` file sources the libraries it needs from `../lib/`,
-following the same pattern the libraries use among themselves.
+following the same pattern the libraries use among themselves. Nothing ties the
+libraries to this program, either — see
+[Using the libraries in your own scripts](#using-the-libraries-in-your-own-scripts).
 
 ## The `lib/` libraries
 
@@ -456,6 +468,10 @@ The libraries are layered by concern, and the split is strict:
 
 That is why `lib/ui.sh` is a pure presentation layer: no `set`, no `trap`, no
 log file, no `/etc/os-release`, no markdown parsing, no `exit`.
+
+The tables below are the reference;
+[Using the libraries in your own scripts](#using-the-libraries-in-your-own-scripts)
+is the guide to consuming them from a script of your own.
 
 ### `lib/ui.sh` — presentation
 
@@ -470,6 +486,8 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `prompt_yes_no "question"` | Ask a `[Y/n]` question, return 0 for yes. Policy-free — no TTY or CI handling. |
 | `prompt_choice "question" default item …` | Numbered selection menu on stderr; the chosen item on stdout. Policy-free — no TTY or CI handling. |
 | `prompt_input "question" [default]` | Free-text prompt on stderr; the entered value on stdout. Policy-free — no TTY or CI handling. |
+| `prompt_multiselect "prompt" "required_id" "off_ids" "id\|label" …` | Arrow-key checklist drawn on stderr; the chosen ids on stdout, one per line. Policy-free — no TTY or CI handling. |
+| `prompt_select_one "prompt" "default_id" "id\|label" …` | Arrow-key single-choice list drawn on stderr; Enter commits the highlighted row, `q`/Ctrl-D returns 1. The chosen id on stdout. Policy-free — no TTY or CI handling. |
 | `UI_WIDTH` | Shared width, so banners and section rules line up. |
 
 ### `lib/log.sh` — the run log
@@ -497,6 +515,8 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `confirm "prompt"` | `prompt_yes_no` plus the auto-approve policy: `SETUP_ASSUME_YES=1`, or no TTY. |
 | `choose "prompt" default item …` | `prompt_choice` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`. |
 | `ask "prompt" [default]` | Free text plus the auto-answer policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`; fails when there is no default. |
+| `select_steps "prompt" "required_id" "id\|label" …` | `prompt_multiselect` plus the non-interactive policy: `SETUP_ASSUME_YES=1`, or no usable terminal, selects every step minus `SKIP_STEPS`. Returns 1 on an interactive abort (`q`/Ctrl-D), 2 when there is nothing to select from. |
+| `select_one "prompt" "default_id" "id\|label" …` | `prompt_select_one` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no usable terminal, takes `default_id` (first item when the id is unknown). Returns 1 on an interactive abort (`q`/Ctrl-D), 2 when there is nothing to choose from. |
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
 
@@ -531,6 +551,176 @@ Matching normalises the bullet first: markdown, a trailing parenthetical and
 anything after an em/en dash are stripped, and the result is lowercased. So
 `` `sudo` available — the script will prompt for your password `` matches the key
 `sudo`.
+
+## Using the libraries in your own scripts
+
+`lib/` is not internal to this repository. It is four self-contained bash files
+with no dependency beyond bash 4 and a terminal, and any script can source them
+the way `main.sh` does — which is also the way a `setup/*.sh` step sources them
+from `../lib/`. `setup/` is the part that is *not* reusable: those are steps of
+this program, not a library.
+
+The layering rule above is what makes that safe to do. The libraries never call
+`exit` and never touch your shell options, so everything that decides whether
+the program stops stays in the script that sources them.
+
+### Getting the files
+
+Clone this repository (or add it as a submodule) and point at `lib/` — or copy
+the directory into your own project and treat it as vendored code, which is
+four files of plain bash with nothing third-party in them. Either way nothing
+resolves against the working directory: every file finds its siblings from
+`BASH_SOURCE`, and the `readonly` load guards make a repeated `source` a no-op.
+
+| Source | Also loads | Provides |
+|---|---|---|
+| `lib/ui.sh` | — | `banner`, `section`, `info` / `warn` / `error` / `success` / `step`, the spinner, `bullet`, `md_inline`, and the `prompt_*` family |
+| `lib/utils.sh` | — | `command_exists`, `_sudo`, `append_if_missing` |
+| `lib/log.sh` | `ui.sh` | `run`, `log_tail`, `LOG_FILE` |
+| `lib/preflight.sh` | `ui.sh`, `utils.sh` | `preflight`, `show_requirements`, `check_requirements`, `confirm`, `choose`, `ask`, `select_steps`, `select_one`, `readme_section`, `_os_release` |
+
+`log.sh` and `preflight.sh` between them load everything else, so those two plus
+`utils.sh` are the whole surface:
+
+```bash
+__lib="${LINUX_UTILS_LIB:-$HOME/code/linux-utils/lib}"
+source "$__lib/log.sh"        # ui.sh comes with it
+source "$__lib/utils.sh"
+source "$__lib/preflight.sh"  # ui.sh and utils.sh again — guarded
+```
+
+### What your script owns
+
+The libraries return a status and stop there. Four things belong to the script
+that sources them:
+
+1. **Shell options and `IFS`.** `set -eEuo pipefail` and `IFS=$'\n\t'`, set by
+   your script and not by a sourced file — `set -e` inside a sourced file does
+   not reliably enable errexit. The libraries are written and tested under
+   exactly that combination.
+2. **The traps.** `trap spinner_cleanup EXIT`, so an aborted run cannot leave a
+   disowned spinner redrawing over the shell prompt; plus an `ERR` trap if you
+   want a failure reported with the file and line — [`main.sh`](main.sh) shows
+   the shape, including the `BASH_SUBSHELL` guard.
+3. **`run_or_die`.** `run` in `lib/log.sh` only *returns* the command's status,
+   and `lib/` never exits, so the fatal version is the entrypoint's own
+   one-liner: `run_or_die() { run "$@" || exit $?; }`. Copy it, or write your
+   own policy over `run`.
+4. **The log file.** `run` appends raw command output to `$LOG_FILE`, and that
+   output can contain secrets. Export `LOG_FILE` before sourcing to choose the
+   path, then create it and `chmod 600` it — `main.sh` does both.
+
+Notice what is absent: nothing in `lib/` runs `preflight` for you, and nothing
+there exits. `preflight` returns 1 when a requirement failed and 130 when the
+user declined; `confirm` returns 1 for "no". Acting on those is your call.
+
+### A complete example
+
+```bash
+#!/usr/bin/env bash
+# my-setup — a standalone script built on linux-utils/lib
+set -eEuo pipefail
+IFS=$'\n\t'
+
+__lib="${LINUX_UTILS_LIB:-$HOME/code/linux-utils/lib}"
+source "$__lib/log.sh"
+source "$__lib/utils.sh"
+source "$__lib/preflight.sh"
+
+# `run` appends raw command output here, and that output can contain secrets.
+: >> "$LOG_FILE"
+chmod 600 "$LOG_FILE" 2>/dev/null || true
+trap spinner_cleanup EXIT
+
+run_or_die() { run "$@" || exit $?; }   # the entrypoint's one-liner
+
+install_something() {
+    _sudo apt-get install -y something
+}
+
+banner 'MY SETUP'
+
+# Shows the ## Requirements bullets, proves them against this machine, asks to
+# go ahead. The file is PREFLIGHT_README, or a clone's README.md by default.
+preflight || exit $?
+
+if confirm 'Install something?'; then
+    run_or_die 'Installing something' install_something
+else
+    warn 'Skipped — nothing installed'
+fi
+
+# The idempotency primitive for dotfiles: appended only when the marker is
+# not already present.
+append_if_missing "$HOME/.zshrc" 'export PATH="$HOME/.local/bin:$PATH"' \
+    'export PATH="$HOME/.local/bin:$PATH"'
+info "Done — log: $LOG_FILE"
+```
+
+The conventions from [Writing a new module](#writing-a-new-module) carry over
+where they still hold — no shell options inside a sourced file, `run_or_die`
+for anything whose failure should end the run, four-space indent. What changes
+is who owns the decisions: a module is called by `main.sh`, which has already
+set the shell options, installed the traps and run `preflight`, while a script
+like the one above has to do all three itself.
+
+### Which prompt to call
+
+Every prompt in `ui.sh` is policy-free: it always reads the terminal. The
+wrappers in `preflight.sh` add the non-interactive policy on top — with
+`SETUP_ASSUME_YES=1`, or with no terminal on stdin, they answer for you:
+
+| You want | Call | With no TTY or `SETUP_ASSUME_YES=1` |
+|---|---|---|
+| a question the user must answer | `prompt_yes_no`, `prompt_choice`, `prompt_input`, `prompt_multiselect`, `prompt_select_one` | nothing — it reads stdin, which is at EOF, so the prompt fails (`prompt_multiselect` returns its current selection) |
+| a question that has a sensible default | `confirm`, `choose`, `ask`, `select_one`, `select_steps` | auto-approved, or the default taken |
+
+`select_one` and `select_steps` ask for stderr as well as stdin — the menu is
+drawn there, so a redirected stderr (`main.sh 2>log`) would wait for keys
+nobody can see. They note that and take the default instead; the same happens
+when `TERM` cannot draw the menu or the window is smaller than 6 rows by 15
+columns.
+
+The value always comes back on **stdout** while everything drawn goes to
+**stderr**, so a caller captures the answer with `$(...)` and still sees the
+menu:
+
+```bash
+host="$(ask 'Hostname?' 'dev-box')" || true
+profile="$(select_one 'Which profile?' dev prod staging)" || exit 1
+```
+
+`select_steps` additionally honours `SKIP_STEPS`, and the notes the
+non-interactive wrappers print go to stderr, so they never end up inside a
+capture.
+
+### Environment
+
+| Variable | Effect |
+|---|---|
+| `LOG_FILE` | Where `run` appends output. Defaults to `/tmp/setup-YYYYMMDD-HHMMSS.log`; export it *before* sourcing to override. |
+| `SETUP_ASSUME_YES=1` | Auto-approve `confirm` / `choose` / `ask` / `select_*`. Implied automatically when stdin is not a terminal. |
+| `SOFT_PREFLIGHT=1` | Report failed requirement checks as warnings and carry on instead of aborting. |
+| `PREFLIGHT_README` | The markdown file `preflight` reads: a clone's `README.md` one level above `lib/` by default. The legacy `UI_README` name is still honoured. |
+| `SKIP_STEPS` | Space-, tab- or comma-separated ids for `select_steps` to pre-deselect interactively, or to drop entirely in an unattended run. |
+
+### Gotchas
+
+- **The names are generic.** `info`, `warn`, `error`, `section`, `banner`,
+  `run`, `confirm`, `ask`, `choose` — a collision with your own functions is
+  settled by source order, so source the libraries first and keep yours.
+- **A library loads once per process.** The guards are `readonly`, so a file
+  cannot be unloaded and re-sourced; sourcing it twice is simply a no-op.
+- **`run` hides the output.** A success prints only the label, the raw output
+  goes to `$LOG_FILE`, and the tail of it is printed when the command fails.
+- **The spinner is a no-op without a TTY** (see [Notes](#notes)), so piping a
+  script built on these libraries is safe rather than garbled.
+- **`preflight` wants a markdown file with a `## Requirements` section.** A
+  copied `lib/` has no README beside it — pass one (`preflight ./README.md`) or
+  set `PREFLIGHT_README`.
+- **Reach for `_sudo` instead of `sudo`** when the script may run as root: it
+  skips itself there, refreshes the credential once, and pauses a running
+  spinner around the password prompt so the prompt is not erased.
 
 ## Before it runs
 
@@ -567,7 +757,7 @@ A failed check aborts before anything is installed. Two escape hatches:
 
 | Variable | Effect |
 |---|---|
-| `SETUP_ASSUME_YES=1` | Skip the `[Y/n]` prompt. Implied automatically when stdout is not a TTY (CI, pipes). |
+| `SETUP_ASSUME_YES=1` | Skip the `[Y/n]` prompt. Implied automatically when stdin is not a TTY (CI, pipes). |
 | `SOFT_PREFLIGHT=1` | Report failed checks as warnings and continue instead of aborting. |
 
 The legacy `UI_README` name is still honoured alongside it. This matters if you
@@ -575,11 +765,60 @@ edit the [Requirements](#requirements) bullets: the preflight reads the wording
 from there at run time, so a typo in that section shows up on your terminal as
 a mismatched or unverified check.
 
+### Choosing steps
+
+Right after the run confirmation, `main.sh` shows the steps it can run as a live
+checklist and lets you pick which to run:
+
+```
+▶  Steps to run
+────────────────────────────────────────────────────────────
+  ▶  [x]   1. System update & base packages  (required)
+     [x]   2. Zsh + Oh-My-Zsh
+     [x]   3. Docker Engine
+     ...
+     [x]  12. NVIDIA drivers (GPU-gated)
+
+     ↑/↓ move · space toggle · a all · n none · Enter continue · q quit
+```
+
+Everything starts selected. `↑`/`↓` (or `j`/`k`) move the cursor, `space` toggles
+the highlighted step, `a` selects all, `n` deselects every step except the
+required first one, `Enter` confirms and `q` or `Ctrl-D` aborts the run. Step 1
+(system update & base packages) is the bootstrap the later steps depend on, so
+it is always selected — the cursor can land on it, but `space` there is
+rejected. A deselected step prints a `Skipping: …` line and is otherwise
+untouched; the three already-gated steps (firefox, xbox, nvidia) keep their own
+hardware checks and prompts when they are selected. The checklist sizes itself to the terminal: every line is clipped to
+the window width (a wrapped line would scramble the redraw), and on a window
+too short for all twelve rows it shows the rows around the cursor rather than
+the whole list.
+
+In a non-interactive run the choice comes from `SKIP_STEPS` (see
+[Configuration](#configuration)): with no terminal, or with
+`SETUP_ASSUME_YES=1`, every step except those listed runs. The same list also
+pre-deselects those steps in the interactive checklist. The checklist needs a
+terminal to draw *on* as well as one to read from — stderr for the menu, stdin
+for the keys, a `TERM` that can render it, and a window of at least 6 rows by
+15 columns — so `main.sh 2>log`, a dumb/unset `TERM`, or a window too small for
+the list falls back to that same non-interactive path, saying so first instead
+of waiting for keys nobody can see.
+
+Skipping `zsh` does not drop `~/.local/bin` from PATH: step 1 puts it in
+`~/.profile`, which bash login shells read (Ubuntu's stock `.profile` already
+has it), while the zsh step's own copy in `.zshrc` simply does not happen. If
+your login shell is zsh even though you skipped the step, add
+`export PATH="$HOME/.local/bin:$PATH"` to your own zsh config — zsh does not
+read `~/.profile`.
+
 ### SSH keys up front
 
-Immediately after the run confirmation, `main.sh` calls `ssh_preflight`, so the
-SSH decision is made before anything is installed. It looks for a bundle, then
-for private keys in `~/.ssh`, and asks whether to use what it finds:
+Immediately after the run confirmation, `main.sh` shows the `Steps to run`
+checklist (see [Choosing steps](#choosing-steps)); once that selection is made
+— and only when the SSH step itself stays selected — it calls `ssh_preflight`,
+so the SSH decision is made before anything is installed. It looks for a
+bundle, then for private keys in `~/.ssh`, and asks whether to use what it
+finds:
 
 ```
 ▶  SSH keys
@@ -610,11 +849,15 @@ auto-approved by `SETUP_ASSUME_YES=1` or with no terminal.
 
 Two things must be true for `main.sh` to run with no terminal:
 
-- `SETUP_ASSUME_YES=1` (implied automatically when stdout is not a TTY) so the
+- `SETUP_ASSUME_YES=1` (implied automatically when stdin is not a TTY) so the
   confirmation is skipped.
 - The invoking user is `root`, or has passwordless `sudo`. When a TTY is
   present the script caches `sudo` credentials once; an unattended run cannot
   answer a password prompt, so `sudo` must not ask.
+
+With no terminal every step runs, exactly as a clean clone always has. Set
+`SKIP_STEPS` to skip steps unattended — `SKIP_STEPS="vscode php nvidia"` — rather
+than maintaining a fork with the `*_setup` calls removed.
 
 Non-interactive apt is handled for you: the entrypoint exports
 `DEBIAN_FRONTEND=noninteractive`, `NEEDRESTART_MODE=a` and
@@ -673,8 +916,9 @@ something_setup() {
 }
 ```
 
-Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call.
+Then source it from `main.sh` alongside the other libraries, add an
+`id|label` entry to `_STEP_SPECS` there, and add a `run_step id` section in the
+run order. The registry is what puts the step in the `Steps to run` checklist.
 
 A few rules keep the layering intact:
 
@@ -689,10 +933,10 @@ A few rules keep the layering intact:
 - **A new hard prerequisite needs two edits:** a `key|predicate|detail` row in
   `_REQ_CHECKS` in `lib/preflight.sh`, and a matching bullet in this file's
   [Requirements](#requirements) section. Miss either and the run says so.
-- **A new file needs two edits too:** a `source` line in `main.sh`, and an entry
-  in `REQUIRED_FILES` in `scripts/build-archive.sh`. The archive payload is an
-  allowlist, so a module that is not listed works from a clone and is silently
-  missing from a release.
+- **A new file needs three edits:** a `source` line in `main.sh`, a `_STEP_SPECS`
+  registry entry (and a `run_step` call), and an entry in `REQUIRED_FILES` in
+  `scripts/build-archive.sh`. The archive payload is an allowlist, so a module
+  that is not listed works from a clone and is silently missing from a release.
 - **Indent is 4 spaces, no tabs,** in every `.sh` file — one level per block,
   including the payload of a `bash -c '…'` string. Here-doc bodies start at
   column 0, because `<<EOF` strips the indentation but not the content.
