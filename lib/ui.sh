@@ -313,21 +313,41 @@ _multiselect_readkey() {
     printf '%s' "$key"
 }
 
-# ── prompt_multiselect ─────────────────────────────────────────────────────────
-# prompt_multiselect "prompt" "required_id" "off_ids" "id|label" ... — an
-# interactive checklist. Arrow keys (or j/k) move a cursor, space toggles the
-# highlighted item, `a` selects all, `n` deselects all except the required id,
-# Enter accepts, `q` aborts (returns 1). The checklist is drawn on stderr and
-# redrawn in place with ANSI cursor movement; the chosen ids are printed to
-# stdout, one per line, so a caller captures them with $(...).
+# ── _prompt_picker ────────────────────────────────────────────────────────────
+# _prompt_picker "mode" "prompt" "anchor" "off_ids" "id|label" ... — the shared
+# core behind prompt_multiselect (mode `multi`) and prompt_select_one (mode
+# `single`): one interactive list, drawn on stderr and redrawn in place with
+# ANSI cursor movement, so a caller captures the value from stdout with $(...)
+# and still sees the menu.
 #
-# `required_id` (may be empty) is an id that cannot be toggled off and is shown
-# `(required)`. `off_ids` is a space-padded, space-separated list of ids that
-# start unchecked — e.g. ` vscode php `. Like prompt_yes_no/prompt_choice this is
-# policy-free: it always reads the terminal — see select_steps in lib/preflight.sh
-# for the TTY/CI handling.
-prompt_multiselect() {
-    local prompt="${1:?prompt required}" required="${2:-}" off="${3:-}"; shift 3
+#   multi  — `anchor` is a required id that cannot be toggled off and is shown
+#            `(required)`; `off_ids` is a space-padded, space-separated list of
+#            ids that start unchecked (e.g. ` vscode php `). Arrow keys (or
+#            j/k) move, space toggles, `a` all, `n` none but the required id,
+#            Enter accepts, `q` aborts. Prints every selected id to stdout, one
+#            per line.
+#   single — `anchor` is the id the cursor starts on (item 1 when it is absent
+#            or unknown); `off_ids` is ignored. Arrow keys (or j/k) move, Enter
+#            commits the highlighted item, `q` aborts. Prints the one chosen id
+#            to stdout.
+#
+# Returns 0 with the value on stdout; 1 on an empty list, on `q`, or on EOF
+# (Ctrl-D — a single-select that never committed prints nothing at all).
+#
+# Deliberately policy-free: it always reads the terminal, so the TTY/CI handling
+# lives in the wrappers — select_steps/select_one in lib/preflight.sh. The
+# check is on stdin there, because a caller captures the value with $(...),
+# which only redirects stdout.
+#
+# Every draw goes to stderr, never stdout: a bare printf here would be swallowed
+# by the caller's $(...) capture and leave the terminal blank while this loop
+# waits for a keypress nobody can see. `_multiselect_readkey` is the single
+# exception — its key is the captured value, so stdout is its channel.
+_prompt_picker() {
+    local mode="${1:?mode required}" prompt="${2:?prompt required}"
+    local anchor="${3:-}" off="${4:-}"
+    (( $# >= 4 )) || return 1
+    shift 4
     local -a specs=( "$@" )
     local total=${#specs[@]}
     (( total > 0 )) || return 1
@@ -338,32 +358,47 @@ prompt_multiselect() {
     for spec in "${specs[@]}"; do
         id="${spec%%|*}"; label="${spec#*|}"
         ids+=( "$id" ); labels+=( "$label" )
-        if [[ "$id" == "$required" ]] || [[ "$off" != *" $id "* ]]; then
+        if [[ "$mode" == 'single' ]]; then
+            # No toggling state in single mode: the cursor is the selection.
+            on["$id"]=0
+        elif [[ "$id" == "$anchor" ]] || [[ "$off" != *" $id "* ]]; then
             on["$id"]=1
         else
             on["$id"]=0
         fi
     done
 
+    # Single mode starts on the caller's default, clamped to the first item.
     local cursor=1
+    if [[ "$mode" == 'single' ]]; then
+        for i in "${!ids[@]}"; do
+            if [[ "${ids[i]}" == "$anchor" ]]; then
+                cursor=$(( i + 1 ))
+                break
+            fi
+        done
+    fi
+
     local _ms_lines=$(( total + 5 ))
     local _ms_first=1
     local _ms_note=''
     local rule help
     printf -v rule "%${UI_WIDTH}s" ''
     rule="${rule// /─}"
-    help='↑/↓ move · space toggle · a all · n none · Enter continue · q quit'
+    if [[ "$mode" == 'single' ]]; then
+        help='↑/↓ move · Enter select · q quit'
+    else
+        help='↑/↓ move · space toggle · a all · n none · Enter continue · q quit'
+    fi
 
-    # _multiselect_render redraws the whole checklist in place. It is defined
-    # inside prompt_multiselect so it reads the caller's locals (dynamic scope):
-    # prompt, rule, help, total, ids, labels, on, cursor, required, _ms_lines,
-    # _ms_first and _ms_note. _ms_lines is the exact number of lines it emits,
-    # which is what makes the cursor-up redraw stay in place.
-    # Every draw goes to stderr, never stdout: the caller captures the chosen
-    # ids with `$(select_steps ...)`, so a bare printf here would swallow the
-    # whole checklist into the caller's variable and leave the terminal blank
-    # while the loop waits for a keypress nobody can see.
-    _multiselect_render() {
+    # _picker_render redraws the whole list in place. It is defined inside
+    # _prompt_picker so it reads the caller's locals (dynamic scope): mode,
+    # prompt, rule, help, total, ids, labels, on, cursor, anchor, _ms_lines,
+    # _ms_first and _ms_note. _ms_lines is the exact number of lines it emits —
+    # blank, prompt, rule, one row per item, note-or-blank, help — which is what
+    # makes the cursor-up redraw stay in place in both modes.
+    # Every printf here carries >&2; see the header comment.
+    _picker_render() {
         local i box mark reqtag
 
         if (( ! _ms_first )); then
@@ -380,12 +415,19 @@ prompt_multiselect() {
             else
                 mark='     '
             fi
-            if [[ "${on[${ids[i]}]}" == 1 ]]; then
+            if [[ "$mode" == 'single' ]]; then
+                # Radio, not checkbox: only the highlighted row can be picked.
+                if (( i + 1 == cursor )); then
+                    box="${GREEN}[•]${NC}"
+                else
+                    box='[ ]'
+                fi
+            elif [[ "${on[${ids[i]}]}" == 1 ]]; then
                 box="${GREEN}[x]${NC}"
             else
                 box='[ ]'
             fi
-            if [[ "${ids[i]}" == "$required" ]]; then
+            if [[ "$mode" != 'single' && "${ids[i]}" == "$anchor" ]]; then
                 reqtag="  ${YELLOW}(required)${NC}"
             else
                 reqtag=''
@@ -401,17 +443,27 @@ prompt_multiselect() {
         printf '\033[2K  %s%s%s\n' "$CYAN" "$help" "$NC" >&2
     }
 
-    _multiselect_render
+    _picker_render
     local key
     while :; do
         _ms_note=''
+        # EOF (Ctrl-D) leaves the loop: multi keeps whatever is toggled, single
+        # has committed nothing and must fail with an empty stdout.
         key="$(_multiselect_readkey)" || break
         case "$key" in
-            '') break ;;
+            '')
+                if [[ "$mode" == 'single' ]]; then
+                    printf '%s\n' "${ids[cursor-1]}"
+                    return 0
+                fi
+                break ;;
             $'\e[A'|'k') cursor=$(( cursor > 1 ? cursor - 1 : total )) ;;
             $'\e[B'|'j') cursor=$(( cursor < total ? cursor + 1 : 1 )) ;;
             ' ')
-                if [[ "${ids[cursor-1]}" == "$required" ]]; then
+                if [[ "$mode" == 'single' ]]; then
+                    continue    # nothing to toggle — Enter is the commitment
+                fi
+                if [[ "${ids[cursor-1]}" == "$anchor" ]]; then
                     _ms_note="step $cursor is required — cannot be deselected"
                 elif [[ "${on[${ids[cursor-1]}]}" == 1 ]]; then
                     on["${ids[cursor-1]}"]=0
@@ -419,16 +471,24 @@ prompt_multiselect() {
                     on["${ids[cursor-1]}"]=1
                 fi
                 ;;
-            'a') for (( i = 0; i < total; i++ )); do on["${ids[i]}"]=1; done ;;
-            'n') for (( i = 0; i < total; i++ )); do
-                     [[ "${ids[i]}" == "$required" ]] || on["${ids[i]}"]=0
+            'a')
+                if [[ "$mode" == 'single' ]]; then continue; fi
+                for (( i = 0; i < total; i++ )); do on["${ids[i]}"]=1; done ;;
+            'n')
+                if [[ "$mode" == 'single' ]]; then continue; fi
+                for (( i = 0; i < total; i++ )); do
+                     [[ "${ids[i]}" == "$anchor" ]] || on["${ids[i]}"]=0
                  done ;;
             'q')
                 printf '\n' >&2
                 return 1 ;;
         esac
-        _multiselect_render
+        _picker_render
     done
+
+    if [[ "$mode" == 'single' ]]; then
+        return 1    # EOF without Enter: no id was chosen
+    fi
 
     local out=''
     for (( i = 0; i < total; i++ )); do
@@ -437,4 +497,38 @@ prompt_multiselect() {
     done
     printf '%s' "$out"
     return 0
+}
+
+# ── prompt_multiselect ─────────────────────────────────────────────────────────
+# prompt_multiselect "prompt" "required_id" "off_ids" "id|label" ... — an
+# interactive checklist. Arrow keys (or j/k) move a cursor, space toggles the
+# highlighted item, `a` selects all, `n` deselects all except the required id,
+# Enter accepts, `q` aborts (returns 1). The checklist is drawn on stderr and
+# redrawn in place with ANSI cursor movement; the chosen ids are printed to
+# stdout, one per line, so a caller captures them with $(...).
+#
+# `required_id` (may be empty) is an id that cannot be toggled off and is shown
+# `(required)`. `off_ids` is a space-padded, space-separated list of ids that
+# start unchecked — e.g. ` vscode php `. Like prompt_yes_no/prompt_choice this is
+# policy-free: it always reads the terminal — see select_steps in lib/preflight.sh
+# for the TTY/CI handling.
+prompt_multiselect() {
+    _prompt_picker multi "$@"
+}
+
+# ── prompt_select_one ──────────────────────────────────────────────────────────
+# prompt_select_one "prompt" "default_id" "id|label" ... — an interactive
+# single-choice list: the cursor starts on `default_id` (item 1 when the id is
+# absent or unknown), arrow keys (or j/k) move it, Enter commits the highlighted
+# item, `q` aborts (returns 1, as does Ctrl-D). Drawn on stderr, redrawn in
+# place; the one chosen id is printed to stdout, so a caller captures it with
+# $(...). The `off_ids` slot of the shared core is deliberately empty here —
+# there is nothing to pre-deselect in a radio list.
+#
+# Policy-free, exactly like prompt_yes_no/prompt_choice/prompt_multiselect: it
+# always reads the terminal — see select_one in lib/preflight.sh for the
+# TTY/CI handling.
+prompt_select_one() {
+    local prompt="${1:?prompt required}" default="${2:-}"; shift 2
+    _prompt_picker single "$prompt" "$default" '' "$@"
 }

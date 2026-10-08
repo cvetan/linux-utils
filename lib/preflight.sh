@@ -310,6 +310,51 @@ ask() {
     prompt_input "$prompt" "$default"
 }
 
+# ── select_one "prompt" "default_id" "id|label" ... ──────────────────────────
+# A single-selection with the same non-interactive policy as confirm/choose/ask:
+# with SETUP_ASSUME_YES=1, or no terminal, it resolves `default_id` without
+# reading — falling back to the first item when the id is absent from the list,
+# the clamp prompt_choice applies to its 1-based index. Interactively it hands
+# the terminal to prompt_select_one, whose cursor starts on that same resolved
+# id. The chosen id is printed to stdout, so a caller captures it with $(...).
+# Returns 1 when there is nothing to choose from, or on an interactive abort
+# (q / Ctrl-D), so a caller can write `id="$(select_one …)" || return`.
+#
+# The check is on stdin only, exactly like choose/ask/select_steps: the caller
+# captures the value with $(...), which redirects stdout to a pipe, so `-t 1`
+# would be false by construction and the menu would never show. The menu and the
+# note are drawn on stderr, the terminal that matters.
+select_one() {
+    local prompt="${1:?prompt required}" default="${2:-}"; shift 2
+    local -a specs=( "$@" )
+    local spec resolved='' resolved_label=''
+
+    (( ${#specs[@]} > 0 )) || { error 'select_one: no items to choose from'; return 1; }
+
+    # One pass: take `default` when a spec carries its id, otherwise remember
+    # the first spec as the fallback — so an unknown default still resolves to a
+    # real item instead of printing an id the menu never showed.
+    for spec in "${specs[@]}"; do
+        if [[ -n "$default" && "${spec%%|*}" == "$default" ]]; then
+            resolved="$default"
+            resolved_label="${spec#*|}"
+            break
+        fi
+        if [[ -z "$resolved" ]]; then
+            resolved="${spec%%|*}"
+            resolved_label="${spec#*|}"
+        fi
+    done
+
+    if [[ "${SETUP_ASSUME_YES:-0}" == "1" || ! -t 0 ]]; then
+        step "$prompt — $resolved_label (auto-selected)" >&2
+        printf '%s\n' "$resolved"
+        return 0
+    fi
+
+    prompt_select_one "$prompt" "$resolved" "${specs[@]}"
+}
+
 # ── select_steps "prompt" "required_id" "id|label" ... ────────────────────────
 # A multi-select with the same non-interactive policy as confirm/choose/ask: with
 # SETUP_ASSUME_YES=1 or no terminal it selects every step (minus SKIP_STEPS, a

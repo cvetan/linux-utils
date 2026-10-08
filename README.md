@@ -454,7 +454,9 @@ linux-utils/
 `lib/` holds the reusable pieces, `setup/` holds the steps. `main.sh` is the only
 file that runs; everything else is sourced. The split mirrors the split inside
 each step: a `setup/*.sh` file sources the libraries it needs from `../lib/`,
-following the same pattern the libraries use among themselves.
+following the same pattern the libraries use among themselves. Nothing ties the
+libraries to this program, either — see
+[Using the libraries in your own scripts](#using-the-libraries-in-your-own-scripts).
 
 ## The `lib/` libraries
 
@@ -466,6 +468,10 @@ The libraries are layered by concern, and the split is strict:
 
 That is why `lib/ui.sh` is a pure presentation layer: no `set`, no `trap`, no
 log file, no `/etc/os-release`, no markdown parsing, no `exit`.
+
+The tables below are the reference;
+[Using the libraries in your own scripts](#using-the-libraries-in-your-own-scripts)
+is the guide to consuming them from a script of your own.
 
 ### `lib/ui.sh` — presentation
 
@@ -481,6 +487,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `prompt_choice "question" default item …` | Numbered selection menu on stderr; the chosen item on stdout. Policy-free — no TTY or CI handling. |
 | `prompt_input "question" [default]` | Free-text prompt on stderr; the entered value on stdout. Policy-free — no TTY or CI handling. |
 | `prompt_multiselect "prompt" "required_id" "off_ids" "id\|label" …` | Arrow-key checklist drawn on stderr; the chosen ids on stdout, one per line. Policy-free — no TTY or CI handling. |
+| `prompt_select_one "prompt" "default_id" "id\|label" …` | Arrow-key single-choice list drawn on stderr; Enter commits the highlighted row, `q`/Ctrl-D returns 1. The chosen id on stdout. Policy-free — no TTY or CI handling. |
 | `UI_WIDTH` | Shared width, so banners and section rules line up. |
 
 ### `lib/log.sh` — the run log
@@ -509,6 +516,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `choose "prompt" default item …` | `prompt_choice` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`. |
 | `ask "prompt" [default]` | Free text plus the auto-answer policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`; fails when there is no default. |
 | `select_steps "prompt" "required_id" "id\|label" …` | `prompt_multiselect` plus the non-interactive policy: `SETUP_ASSUME_YES=1`, or no TTY, selects every step minus `SKIP_STEPS`. |
+| `select_one "prompt" "default_id" "id\|label" …` | `prompt_select_one` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default_id` (first item when the id is unknown). Returns 1 on an empty list or an interactive abort. |
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
 
@@ -543,6 +551,170 @@ Matching normalises the bullet first: markdown, a trailing parenthetical and
 anything after an em/en dash are stripped, and the result is lowercased. So
 `` `sudo` available — the script will prompt for your password `` matches the key
 `sudo`.
+
+## Using the libraries in your own scripts
+
+`lib/` is not internal to this repository. It is four self-contained bash files
+with no dependency beyond bash 4 and a terminal, and any script can source them
+the way `main.sh` does — which is also the way a `setup/*.sh` step sources them
+from `../lib/`. `setup/` is the part that is *not* reusable: those are steps of
+this program, not a library.
+
+The layering rule above is what makes that safe to do. The libraries never call
+`exit` and never touch your shell options, so everything that decides whether
+the program stops stays in the script that sources them.
+
+### Getting the files
+
+Clone this repository (or add it as a submodule) and point at `lib/` — or copy
+the directory into your own project and treat it as vendored code, which is
+four files of plain bash with nothing third-party in them. Either way nothing
+resolves against the working directory: every file finds its siblings from
+`BASH_SOURCE`, and the `readonly` load guards make a repeated `source` a no-op.
+
+| Source | Also loads | Provides |
+|---|---|---|
+| `lib/ui.sh` | — | `banner`, `section`, `info` / `warn` / `error` / `success` / `step`, the spinner, `bullet`, `md_inline`, and the `prompt_*` family |
+| `lib/utils.sh` | — | `command_exists`, `_sudo`, `append_if_missing` |
+| `lib/log.sh` | `ui.sh` | `run`, `log_tail`, `LOG_FILE` |
+| `lib/preflight.sh` | `ui.sh`, `utils.sh` | `preflight`, `show_requirements`, `check_requirements`, `confirm`, `choose`, `ask`, `select_steps`, `select_one`, `readme_section`, `_os_release` |
+
+`log.sh` and `preflight.sh` between them load everything else, so those two plus
+`utils.sh` are the whole surface:
+
+```bash
+__lib="${LINUX_UTILS_LIB:-$HOME/code/linux-utils/lib}"
+source "$__lib/log.sh"        # ui.sh comes with it
+source "$__lib/utils.sh"
+source "$__lib/preflight.sh"  # ui.sh and utils.sh again — guarded
+```
+
+### What your script owns
+
+The libraries return a status and stop there. Four things belong to the script
+that sources them:
+
+1. **Shell options and `IFS`.** `set -eEuo pipefail` and `IFS=$'\n\t'`, set by
+   your script and not by a sourced file — `set -e` inside a sourced file does
+   not reliably enable errexit. The libraries are written and tested under
+   exactly that combination.
+2. **The traps.** `trap spinner_cleanup EXIT`, so an aborted run cannot leave a
+   disowned spinner redrawing over the shell prompt; plus an `ERR` trap if you
+   want a failure reported with the file and line — [`main.sh`](main.sh) shows
+   the shape, including the `BASH_SUBSHELL` guard.
+3. **`run_or_die`.** `run` in `lib/log.sh` only *returns* the command's status,
+   and `lib/` never exits, so the fatal version is the entrypoint's own
+   one-liner: `run_or_die() { run "$@" || exit $?; }`. Copy it, or write your
+   own policy over `run`.
+4. **The log file.** `run` appends raw command output to `$LOG_FILE`, and that
+   output can contain secrets. Export `LOG_FILE` before sourcing to choose the
+   path, then create it and `chmod 600` it — `main.sh` does both.
+
+Notice what is absent: nothing in `lib/` runs `preflight` for you, and nothing
+there exits. `preflight` returns 1 when a requirement failed and 130 when the
+user declined; `confirm` returns 1 for "no". Acting on those is your call.
+
+### A complete example
+
+```bash
+#!/usr/bin/env bash
+# my-setup — a standalone script built on linux-utils/lib
+set -eEuo pipefail
+IFS=$'\n\t'
+
+__lib="${LINUX_UTILS_LIB:-$HOME/code/linux-utils/lib}"
+source "$__lib/log.sh"
+source "$__lib/utils.sh"
+source "$__lib/preflight.sh"
+
+# `run` appends raw command output here, and that output can contain secrets.
+: >> "$LOG_FILE"
+chmod 600 "$LOG_FILE" 2>/dev/null || true
+trap spinner_cleanup EXIT
+
+run_or_die() { run "$@" || exit $?; }   # the entrypoint's one-liner
+
+install_something() {
+    _sudo apt-get install -y something
+}
+
+banner 'MY SETUP'
+
+# Shows the ## Requirements bullets, proves them against this machine, asks to
+# go ahead. The file is PREFLIGHT_README, or a clone's README.md by default.
+preflight || exit $?
+
+if confirm 'Install something?'; then
+    run_or_die 'Installing something' install_something
+else
+    warn 'Skipped — nothing installed'
+fi
+
+# The idempotency primitive for dotfiles: appended only when the marker is
+# not already present.
+append_if_missing "$HOME/.zshrc" 'export PATH="$HOME/.local/bin:$PATH"' \
+    'export PATH="$HOME/.local/bin:$PATH"'
+info "Done — log: $LOG_FILE"
+```
+
+The conventions from [Writing a new module](#writing-a-new-module) carry over
+where they still hold — no shell options inside a sourced file, `run_or_die`
+for anything whose failure should end the run, four-space indent. What changes
+is who owns the decisions: a module is called by `main.sh`, which has already
+set the shell options, installed the traps and run `preflight`, while a script
+like the one above has to do all three itself.
+
+### Which prompt to call
+
+Every prompt in `ui.sh` is policy-free: it always reads the terminal. The
+wrappers in `preflight.sh` add the non-interactive policy on top — with
+`SETUP_ASSUME_YES=1`, or with no terminal on stdin, they answer for you:
+
+| You want | Call | With no TTY or `SETUP_ASSUME_YES=1` |
+|---|---|---|
+| a question the user must answer | `prompt_yes_no`, `prompt_choice`, `prompt_input`, `prompt_multiselect`, `prompt_select_one` | nothing — it reads stdin, which is at EOF, so the prompt fails (`prompt_multiselect` returns its current selection) |
+| a question that has a sensible default | `confirm`, `choose`, `ask`, `select_one`, `select_steps` | auto-approved, or the default taken |
+
+The value always comes back on **stdout** while everything drawn goes to
+**stderr**, so a caller captures the answer with `$(...)` and still sees the
+menu:
+
+```bash
+host="$(ask 'Hostname?' 'dev-box')" || true
+profile="$(select_one 'Which profile?' dev prod staging)" || exit 1
+```
+
+`select_steps` additionally honours `SKIP_STEPS`, and the notes the
+non-interactive wrappers print go to stderr, so they never end up inside a
+capture.
+
+### Environment
+
+| Variable | Effect |
+|---|---|
+| `LOG_FILE` | Where `run` appends output. Defaults to `/tmp/setup-YYYYMMDD-HHMMSS.log`; export it *before* sourcing to override. |
+| `SETUP_ASSUME_YES=1` | Auto-approve `confirm` / `choose` / `ask` / `select_*`. Implied automatically when stdin is not a terminal. |
+| `SOFT_PREFLIGHT=1` | Report failed requirement checks as warnings and carry on instead of aborting. |
+| `PREFLIGHT_README` | The markdown file `preflight` reads: a clone's `README.md` one level above `lib/` by default. The legacy `UI_README` name is still honoured. |
+| `SKIP_STEPS` | Space- or comma-separated ids for `select_steps` to pre-deselect interactively, or to drop entirely in an unattended run. |
+
+### Gotchas
+
+- **The names are generic.** `info`, `warn`, `error`, `section`, `banner`,
+  `run`, `confirm`, `ask`, `choose` — a collision with your own functions is
+  settled by source order, so source the libraries first and keep yours.
+- **A library loads once per process.** The guards are `readonly`, so a file
+  cannot be unloaded and re-sourced; sourcing it twice is simply a no-op.
+- **`run` hides the output.** A success prints only the label, the raw output
+  goes to `$LOG_FILE`, and the tail of it is printed when the command fails.
+- **The spinner is a no-op without a TTY** (see [Notes](#notes)), so piping a
+  script built on these libraries is safe rather than garbled.
+- **`preflight` wants a markdown file with a `## Requirements` section.** A
+  copied `lib/` has no README beside it — pass one (`preflight ./README.md`) or
+  set `PREFLIGHT_README`.
+- **Reach for `_sudo` instead of `sudo`** when the script may run as root: it
+  skips itself there, refreshes the credential once, and pauses a running
+  spinner around the password prompt so the prompt is not erased.
 
 ## Before it runs
 
