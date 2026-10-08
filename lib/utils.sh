@@ -49,9 +49,13 @@ _sudo() {
 
 # append_if_missing file marker content — the idempotency primitive for editing
 # dotfiles: append content only when the marker is not already in the file.
+# Returns 2 when an argument is missing: this library has no UI dependency, so
+# the complaint goes straight to stderr instead of through `error`.
 append_if_missing() {
-    local file="${1:?file required}"
-    local marker="${2:?marker required}"
-    local content="${3:?content required}"
+    if (( $# < 3 )); then
+        printf 'append_if_missing: file, marker and content required\n' >&2
+        return 2
+    fi
+    local file="$1" marker="$2" content="$3"
     grep -qF "$marker" "$file" 2>/dev/null || echo -e "$content" >> "$file"
 }

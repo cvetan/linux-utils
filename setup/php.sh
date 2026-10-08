@@ -21,7 +21,8 @@ source "$_setup_dir/../lib/utils.sh"
 
 # Composer installs here rather than /usr/local/bin: a local bin needs no sudo,
 # keeps the phar in the user's home, and makes Composer's global config resolve
-# to the user instead of root. setup/zsh.sh already puts ~/.local/bin on PATH.
+# to the user instead of root. Step 1 puts ~/.local/bin on PATH via ~/.profile,
+# and the zsh step adds the same line to ~/.zshrc.
 COMPOSER_BIN="${COMPOSER_BIN:-$HOME/.local/bin/composer}"
 
 # ── Package sets ──────────────────────────────────────────────────────────────
@@ -147,8 +148,9 @@ install_global_packages() {
 extend_zshrc_composer() {
     local zshrc="$HOME/.zshrc"
 
-    # Only the global bin dir: ~/.local/bin itself is added by setup/zsh.sh,
-    # which runs earlier. Composer 2 puts its global home in $HOME/.config.
+    # Only the global bin dir: ~/.local/bin itself is already on PATH from
+    # step 1 (~/.profile) and from setup/zsh.sh (.zshrc), both earlier than
+    # this step. Composer 2 puts its global home in $HOME/.config.
     append_if_missing "$zshrc" 'composer/vendor/bin' \
         '\n# Composer global bin\nexport PATH="$HOME/.config/composer/vendor/bin:$PATH"'
 }

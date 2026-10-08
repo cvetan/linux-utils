@@ -156,6 +156,18 @@ link_cli_aliases() {
     fi
 }
 
+# ~/.local/bin on PATH for every login shell, zsh's own line in .zshrc
+# (setup/zsh.sh) aside. This lives in step 1 rather than in the zsh step
+# because step 1 runs whether or not that step is selected: a run that skips
+# zsh would otherwise leave Composer (php), the npm global prefix (node) and
+# the bat symlink above in a directory nothing puts on PATH. Stock Ubuntu's
+# .profile already carries the same block, so its `.local/bin` marker makes
+# this a no-op there; a trimmed-down .profile does not have it.
+extend_profile_path() {
+    append_if_missing "$HOME/.profile" '.local/bin' \
+        '\nexport PATH="$HOME/.local/bin:$PATH"'
+}
+
 # ── Repositories ──────────────────────────────────────────────────────────────
 
 # add_custom_repositories ppa [ppa ...] — add the PPAs it is handed.
@@ -244,4 +256,5 @@ base_packages_setup() {
     run_or_die 'Installing base packages' install_packages ${install[@]+"${install[@]}"}
 
     link_cli_aliases
+    extend_profile_path
 }

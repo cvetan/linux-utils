@@ -206,7 +206,8 @@ run_step git
 # =============================================================================
 # Executes the plan ssh_preflight chose at the top of the run: adopt the keys in
 # ~/.ssh (permissions + host mapping prompts), install an offline bundle, or skip.
-# No network, and no key is ever overwritten.
+# No network, and no key is ever overwritten. ssh_preflight itself only ran
+# because this step is selected.
 run_step ssh
 
 

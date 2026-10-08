@@ -19,8 +19,9 @@ _setup_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$_setup_dir/../lib/ui.sh"
 source "$_setup_dir/../lib/utils.sh"
 
-# npm installs global packages under this prefix; ~/.local needs no sudo and its
-# bin dir is already on PATH from setup/zsh.sh. The Composer analogue.
+# npm installs global packages under this prefix; ~/.local needs no sudo and
+# its bin dir is on PATH via step 1's ~/.profile line (and the zsh step's
+# .zshrc line). The Composer analogue.
 NPM_PREFIX="${NPM_PREFIX:-$HOME/.local}"
 
 # The archive Node is EOL below this major (12 on 22.04, 18 on 24.04). The
@@ -84,7 +85,7 @@ install_node_packages() {
 
 # ── npm configuration ─────────────────────────────────────────────────────────
 # Put global packages in the user's home so `npm install -g` needs no sudo and
-# its bins land in ~/.local/bin, which zsh.sh already puts on PATH.
+# its bins land in ~/.local/bin, which step 1 puts on PATH via ~/.profile.
 configure_npm_prefix() {
     run_or_die 'Configuring npm global prefix' npm config set prefix "$NPM_PREFIX"
 }

@@ -238,7 +238,7 @@ INSTALL_XBOX=""                        # optional: 1 installs, 0 skips, unset pr
 XBOX_DONGLE_IDS=""                     # optional override; empty auto-detects the attached dongle
 INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
 NVIDIA_DRIVER=""                       # empty = latest proprietary; a branch (e.g. 580) pins it; "recommended" defers to Ubuntu
-SKIP_STEPS=""                          # optional: space/comma-separated step ids to skip (e.g. "vscode php nvidia")
+SKIP_STEPS=""                          # optional: space-, tab- or comma-separated step ids to skip (e.g. "vscode php nvidia")
 ```
 
 `SKIP_STEPS` lists steps to skip, by their id in the [Status](#status) table.
@@ -515,8 +515,8 @@ is the guide to consuming them from a script of your own.
 | `confirm "prompt"` | `prompt_yes_no` plus the auto-approve policy: `SETUP_ASSUME_YES=1`, or no TTY. |
 | `choose "prompt" default item …` | `prompt_choice` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`. |
 | `ask "prompt" [default]` | Free text plus the auto-answer policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`; fails when there is no default. |
-| `select_steps "prompt" "required_id" "id\|label" …` | `prompt_multiselect` plus the non-interactive policy: `SETUP_ASSUME_YES=1`, or no TTY, selects every step minus `SKIP_STEPS`. |
-| `select_one "prompt" "default_id" "id\|label" …` | `prompt_select_one` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default_id` (first item when the id is unknown). Returns 1 on an empty list or an interactive abort. |
+| `select_steps "prompt" "required_id" "id\|label" …` | `prompt_multiselect` plus the non-interactive policy: `SETUP_ASSUME_YES=1`, or no usable terminal, selects every step minus `SKIP_STEPS`. Returns 1 on an interactive abort (`q`/Ctrl-D), 2 when there is nothing to select from. |
+| `select_one "prompt" "default_id" "id\|label" …` | `prompt_select_one` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no usable terminal, takes `default_id` (first item when the id is unknown). Returns 1 on an interactive abort (`q`/Ctrl-D), 2 when there is nothing to choose from. |
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
 
@@ -675,6 +675,12 @@ wrappers in `preflight.sh` add the non-interactive policy on top — with
 | a question the user must answer | `prompt_yes_no`, `prompt_choice`, `prompt_input`, `prompt_multiselect`, `prompt_select_one` | nothing — it reads stdin, which is at EOF, so the prompt fails (`prompt_multiselect` returns its current selection) |
 | a question that has a sensible default | `confirm`, `choose`, `ask`, `select_one`, `select_steps` | auto-approved, or the default taken |
 
+`select_one` and `select_steps` ask for stderr as well as stdin — the menu is
+drawn there, so a redirected stderr (`main.sh 2>log`) would wait for keys
+nobody can see. They note that and take the default instead; the same happens
+when `TERM` cannot draw the menu or the window is smaller than 6 rows by 15
+columns.
+
 The value always comes back on **stdout** while everything drawn goes to
 **stderr**, so a caller captures the answer with `$(...)` and still sees the
 menu:
@@ -696,7 +702,7 @@ capture.
 | `SETUP_ASSUME_YES=1` | Auto-approve `confirm` / `choose` / `ask` / `select_*`. Implied automatically when stdin is not a terminal. |
 | `SOFT_PREFLIGHT=1` | Report failed requirement checks as warnings and carry on instead of aborting. |
 | `PREFLIGHT_README` | The markdown file `preflight` reads: a clone's `README.md` one level above `lib/` by default. The legacy `UI_README` name is still honoured. |
-| `SKIP_STEPS` | Space- or comma-separated ids for `select_steps` to pre-deselect interactively, or to drop entirely in an unattended run. |
+| `SKIP_STEPS` | Space-, tab- or comma-separated ids for `select_steps` to pre-deselect interactively, or to drop entirely in an unattended run. |
 
 ### Gotchas
 
@@ -751,7 +757,7 @@ A failed check aborts before anything is installed. Two escape hatches:
 
 | Variable | Effect |
 |---|---|
-| `SETUP_ASSUME_YES=1` | Skip the `[Y/n]` prompt. Implied automatically when stdout is not a TTY (CI, pipes). |
+| `SETUP_ASSUME_YES=1` | Skip the `[Y/n]` prompt. Implied automatically when stdin is not a TTY (CI, pipes). |
 | `SOFT_PREFLIGHT=1` | Report failed checks as warnings and continue instead of aborting. |
 
 The legacy `UI_README` name is still honoured alongside it. This matters if you
@@ -767,7 +773,7 @@ checklist and lets you pick which to run:
 ```
 ▶  Steps to run
 ────────────────────────────────────────────────────────────
-  ▶  [x]   1. System update & base packages   (required)
+  ▶  [x]   1. System update & base packages  (required)
      [x]   2. Zsh + Oh-My-Zsh
      [x]   3. Docker Engine
      ...
@@ -777,24 +783,42 @@ checklist and lets you pick which to run:
 ```
 
 Everything starts selected. `↑`/`↓` (or `j`/`k`) move the cursor, `space` toggles
-the highlighted step, `a` selects all, `n` deselects all but the first, `Enter`
-confirms and `q` aborts the run. Step 1 (system update & base packages) is the
-bootstrap the later steps depend on, so it is always selected — the cursor can
-land on it, but `space` there is rejected. A deselected step prints a
-`Skipping: …` line and is otherwise untouched; the three already-gated steps
-(firefox, xbox, nvidia) keep their own hardware checks and prompts when they are
-selected.
+the highlighted step, `a` selects all, `n` deselects every step except the
+required first one, `Enter` confirms and `q` or `Ctrl-D` aborts the run. Step 1
+(system update & base packages) is the bootstrap the later steps depend on, so
+it is always selected — the cursor can land on it, but `space` there is
+rejected. A deselected step prints a `Skipping: …` line and is otherwise
+untouched; the three already-gated steps (firefox, xbox, nvidia) keep their own
+hardware checks and prompts when they are selected. The checklist sizes itself to the terminal: every line is clipped to
+the window width (a wrapped line would scramble the redraw), and on a window
+too short for all twelve rows it shows the rows around the cursor rather than
+the whole list.
 
 In a non-interactive run the choice comes from `SKIP_STEPS` (see
 [Configuration](#configuration)): with no terminal, or with
 `SETUP_ASSUME_YES=1`, every step except those listed runs. The same list also
-pre-deselects those steps in the interactive checklist.
+pre-deselects those steps in the interactive checklist. The checklist needs a
+terminal to draw *on* as well as one to read from — stderr for the menu, stdin
+for the keys, a `TERM` that can render it, and a window of at least 6 rows by
+15 columns — so `main.sh 2>log`, a dumb/unset `TERM`, or a window too small for
+the list falls back to that same non-interactive path, saying so first instead
+of waiting for keys nobody can see.
+
+Skipping `zsh` does not drop `~/.local/bin` from PATH: step 1 puts it in
+`~/.profile`, which bash login shells read (Ubuntu's stock `.profile` already
+has it), while the zsh step's own copy in `.zshrc` simply does not happen. If
+your login shell is zsh even though you skipped the step, add
+`export PATH="$HOME/.local/bin:$PATH"` to your own zsh config — zsh does not
+read `~/.profile`.
 
 ### SSH keys up front
 
-Immediately after the run confirmation, `main.sh` calls `ssh_preflight`, so the
-SSH decision is made before anything is installed. It looks for a bundle, then
-for private keys in `~/.ssh`, and asks whether to use what it finds:
+Immediately after the run confirmation, `main.sh` shows the `Steps to run`
+checklist (see [Choosing steps](#choosing-steps)); once that selection is made
+— and only when the SSH step itself stays selected — it calls `ssh_preflight`,
+so the SSH decision is made before anything is installed. It looks for a
+bundle, then for private keys in `~/.ssh`, and asks whether to use what it
+finds:
 
 ```
 ▶  SSH keys
@@ -825,7 +849,7 @@ auto-approved by `SETUP_ASSUME_YES=1` or with no terminal.
 
 Two things must be true for `main.sh` to run with no terminal:
 
-- `SETUP_ASSUME_YES=1` (implied automatically when stdout is not a TTY) so the
+- `SETUP_ASSUME_YES=1` (implied automatically when stdin is not a TTY) so the
   confirmation is skipped.
 - The invoking user is `root`, or has passwordless `sudo`. When a TTY is
   present the script caches `sudo` credentials once; an unattended run cannot
