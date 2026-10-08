@@ -81,14 +81,70 @@ run_or_die() {
     run "$@" || exit $?
 }
 
+# ── Step registry ─────────────────────────────────────────────────────────────
+# `id|label`, in run order. `id` names the `${id}_setup` function called below;
+# the label is what the "Steps to run" checklist shows. Step 1 (base_packages) is
+# the bootstrap — it installs curl/git/software-properties-common the later steps
+# depend on — so it is always selected and cannot be toggled off.
+_STEP_SPECS=(
+    'base_packages|System update & base packages'
+    'zsh|Zsh + Oh-My-Zsh'
+    'docker|Docker Engine'
+    'vscode|Visual Studio Code'
+    'node|Node.js + npm'
+    'php|PHP + Composer'
+    'sdkman|SDKMAN + Java'
+    'git|Git configuration'
+    'ssh|SSH keys'
+    'firefox|Firefox (snap-gated)'
+    'xbox|Xbox Wireless Adapter (dongle-gated)'
+    'nvidia|NVIDIA drivers (GPU-gated)'
+)
+readonly _STEP_REQUIRED='base_packages'
+
+# id → label, filled once from the registry; _SELECTED[id]=1 for every step the
+# user chose, which run_step consults.
+declare -A _STEP_LABELS=() _SELECTED=()
+for _spec in "${_STEP_SPECS[@]}"; do
+    _STEP_LABELS["${_spec%%|*}"]="${_spec#*|}"
+done
+unset _spec
+
+# run_step id — run a step only when it was selected, so a deselected step is
+# skipped cleanly instead of silently dropped. The skip line matches how the
+# hardware-gated steps (firefox/xbox/nvidia) already announce their own skips.
+run_step() {
+    local id="${1:?step id required}"
+    if [[ -n "${_SELECTED[$id]:-}" ]]; then
+        "${id}_setup"
+    else
+        step "Skipping: ${_STEP_LABELS[$id]:-${id}}"
+    fi
+}
+
 banner 'DEVELOPMENT MACHINE SETUP'
 
 # Show README requirements, verify them on this machine, ask for confirmation.
 preflight || exit $?
 
+# Decide which steps to run, up front, while the user is still at the terminal.
+# The checklist defaults to everything selected; step 1 is locked on, and an
+# unattended run (or SKIP_STEPS) carries the choice without a prompt. select_steps
+# returns 1 only on an interactive abort (q), which ends the run the same way a
+# declined preflight does.
+_selected_ids="$(select_steps 'Steps to run' "$_STEP_REQUIRED" ${_STEP_SPECS[@]+"${_STEP_SPECS[@]}"})" \
+    || { warn 'Aborted by user'; exit 130; }
+while IFS= read -r _id; do
+    [[ -n "$_id" ]] && _SELECTED["$_id"]=1
+done <<< "$_selected_ids"
+unset _selected_ids _id
+
 # Decide the SSH plan up front — bundle, ~/.ssh keys, or skip — while the user is
-# still at the terminal. ssh_setup (step 9) carries out whatever is chosen here.
-ssh_preflight
+# still at the terminal. ssh_setup carries out whatever is chosen here. Skipped
+# entirely when the SSH step itself was deselected.
+if [[ -n "${_SELECTED[ssh]:-}" ]]; then
+    ssh_preflight
+fi
 
 # Cache sudo credentials once so every later step does not prompt again. Skipped
 # as root (nothing to cache) and without a TTY, where prompting would hang — an
@@ -100,49 +156,49 @@ fi
 # =============================================================================
 # 1. SYSTEM UPDATE & BASE PACKAGES
 # =============================================================================
-base_packages_setup
+run_step base_packages
 
 # =============================================================================
 # 2. ZSH + OH-MY-ZSH
 # =============================================================================
 # Before Docker and the language installers: SDKMAN and friends write their
 # init into the user's shell config, and that config has to exist first.
-zsh_setup
+run_step zsh
 
 # =============================================================================
 # 3. DOCKER ENGINE
 # =============================================================================
-docker_setup
+run_step docker
 
 
 # =============================================================================
 # 4. VSCODE SETUP
 # =============================================================================
-vscode_setup
+run_step vscode
 
 
 # =============================================================================
 # 5. NODE.JS + NPM
 # =============================================================================
-node_setup
+run_step node
 
 
 # =============================================================================
 # 6. PHP + COMPOSER
 # =============================================================================
-php_setup
+run_step php
 
 
 # =============================================================================
 # 7. SDKMAN + JAVA
 # =============================================================================
-sdkman_setup
+run_step sdkman
 
 
 # =============================================================================
 # 8. GIT CONFIGURATION
 # =============================================================================
-git_setup
+run_step git
 
 
 # =============================================================================
@@ -151,7 +207,7 @@ git_setup
 # Executes the plan ssh_preflight chose at the top of the run: adopt the keys in
 # ~/.ssh (permissions + host mapping prompts), install an offline bundle, or skip.
 # No network, and no key is ever overwritten.
-ssh_setup
+run_step ssh
 
 
 # =============================================================================
@@ -162,7 +218,7 @@ ssh_setup
 # and dpkg reports no real deb does it ask, then swap them, pin the PPA and
 # install the deb. Skipped entirely everywhere else, so every other machine is
 # unaffected. Runs after SSH and before the hardware-gated steps.
-firefox_setup
+run_step firefox
 
 
 # =============================================================================
@@ -173,7 +229,7 @@ firefox_setup
 # controller pairing. Skipped entirely when no dongle is attached, so every other
 # machine is unaffected. Runs before the NVIDIA step on purpose, so the step that
 # wants a reboot stays last.
-xbox_setup
+run_step xbox
 
 
 # =============================================================================
@@ -182,4 +238,4 @@ xbox_setup
 # Last on purpose: the driver only takes effect after a reboot, so the run ends
 # with the machine ready to restart. Skipped entirely when no NVIDIA display
 # controller is found, so every other machine is unaffected.
-nvidia_setup
+run_step nvidia

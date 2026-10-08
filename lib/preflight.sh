@@ -310,6 +310,66 @@ ask() {
     prompt_input "$prompt" "$default"
 }
 
+# ── select_steps "prompt" "required_id" "id|label" ... ────────────────────────
+# A multi-select with the same non-interactive policy as confirm/choose/ask: with
+# SETUP_ASSUME_YES=1 or no terminal it selects every step (minus SKIP_STEPS, a
+# space- or comma-separated list of step ids) without reading. Interactively it
+# hands the terminal to prompt_multiselect, pre-deselecting any SKIP_STEPS ids so
+# the blocklist also seeds the checklist. The selected ids are printed to stdout,
+# one per line, so a caller captures them with $(...). Returns 1 only on an
+# interactive abort (q).
+#
+# The check is on stdin only: the caller captures the selection with $(...),
+# which redirects stdout to a pipe, so `-t 1` would be false by construction and
+# the checklist would never show. The menu is drawn on stderr, the terminal that
+# matters, exactly like choose/ask.
+select_steps() {
+    local prompt="${1:?prompt required}" required="${2:-}"; shift 2
+    local -a specs=( "$@" )
+    local raw="${SKIP_STEPS:-}" id spec known
+    local -a skip_ids=()
+    local skip_pat=' '
+
+    if [[ -n "$raw" ]]; then
+        IFS=' ' read -r -a skip_ids <<< "${raw//,/" "}" || true
+        local s
+        for s in "${skip_ids[@]}"; do
+            [[ -n "$s" ]] || continue
+            skip_pat+="$s "
+            known=0
+            for spec in "${specs[@]}"; do
+                [[ "${spec%%|*}" == "$s" ]] && { known=1; break; }
+            done
+            (( known )) || warn "SKIP_STEPS: unknown step '$s' — ignored"
+        done
+    fi
+
+    if [[ "${SETUP_ASSUME_YES:-0}" == "1" || ! -t 0 ]]; then
+        _select_steps_unattended "$prompt" "$required" "$skip_pat" "${specs[@]}"
+    else
+        prompt_multiselect "$prompt" "$required" "$skip_pat" "${specs[@]}"
+    fi
+}
+
+# _select_steps_unattended — the no-terminal path of select_steps: every step id
+# except the SKIP_STEPS blocklist, with `required` forced in regardless. Ids go
+# to stdout; a note about what was skipped goes to stderr.
+_select_steps_unattended() {
+    local prompt="${1:?prompt required}" required="${2:-}" skip_pat="${3:-}"; shift 3
+    local -a specs=( "$@" ) out=()
+    local spec id
+    for spec in "${specs[@]}"; do
+        id="${spec%%|*}"
+        if [[ "$id" == "$required" ]] || [[ "$skip_pat" != *" $id "* ]]; then
+            out+=( "$id" )
+        fi
+    done
+    if [[ -n "${SKIP_STEPS:-}" ]]; then
+        step "$prompt — SKIP_STEPS: ${SKIP_STEPS}" >&2
+    fi
+    printf '%s\n' ${out[@]+"${out[@]}"}
+}
+
 # ── preflight [file] ──────────────────────────────────────────────────────────
 # show_requirements → check_requirements → confirm. Returns 1 if a check failed,
 # 130 if the user declined. Reports failed checks as warnings instead when

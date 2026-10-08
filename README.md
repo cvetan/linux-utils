@@ -162,8 +162,9 @@ GB and several minutes per release.
    distro packages), including Buildx and Compose v2 plugins. Conflicting legacy
    packages (`docker.io`, `podman-docker`, `containerd`, …) are removed first, and
    your user is added to the `docker` group.
-4. **Visual Studio Code** — installed from Microsoft's apt repository. Remove
-   the `vscode_setup` call in `main.sh` if a machine should not get it.
+4. **Visual Studio Code** — installed from Microsoft's apt repository.
+   Deselect it at the `Steps to run` prompt (or `SKIP_STEPS=vscode`) if a
+   machine should not get it.
 5. **Node.js + npm** — the distribution's own Node and npm, no third-party PPA
    and no nvm, so the version tracks the Ubuntu release (12 on 22.04, 18 on
    24.04, 22 on 26.04). Debian/Ubuntu build `nodejs` `--without-npm`, so `npm`
@@ -237,7 +238,13 @@ INSTALL_XBOX=""                        # optional: 1 installs, 0 skips, unset pr
 XBOX_DONGLE_IDS=""                     # optional override; empty auto-detects the attached dongle
 INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
 NVIDIA_DRIVER=""                       # empty = latest proprietary; a branch (e.g. 580) pins it; "recommended" defers to Ubuntu
+SKIP_STEPS=""                          # optional: space/comma-separated step ids to skip (e.g. "vscode php nvidia")
 ```
+
+`SKIP_STEPS` lists steps to skip, by their id in the [Status](#status) table.
+Interactively it pre-deselects those steps in the checklist; in an unattended run
+it is the only selection — every step not listed runs, and step 1 is always
+included regardless. A listed id that names no step is warned about and ignored.
 
 Some settings are arrays edited in place rather than exported — the global
 Composer packages in `_COMPOSER_GLOBAL_PACKAGES` in `setup/php.sh` and the
@@ -257,7 +264,9 @@ A few changes need a new login to take effect:
 
 ## Status
 
-`main.sh` runs all twelve steps:
+`main.sh` runs the twelve steps below, in order, by default; each can be
+deselected at the `Steps to run` prompt (see
+[Before it runs](#before-it-runs)) or skipped with `SKIP_STEPS`.
 
 | # | Step | Module |
 |---|---|---|
@@ -275,8 +284,9 @@ A few changes need a new login to take effect:
 | 12 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
 
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
-Microsoft's apt repository. It is called from `main.sh` as step 4; remove the
-`vscode_setup` call there if a machine should not get it.
+Microsoft's apt repository. It is called from `main.sh` as step 4; deselect it
+at the `Steps to run` prompt (or `SKIP_STEPS=vscode`) if a machine should not
+get it.
 
 [`setup/php.sh`](setup/php.sh) installs the distribution's own PHP CLI — no
 third-party PPA, so the version follows the Ubuntu release (8.1 on 22.04, 8.3 on
@@ -470,6 +480,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `prompt_yes_no "question"` | Ask a `[Y/n]` question, return 0 for yes. Policy-free — no TTY or CI handling. |
 | `prompt_choice "question" default item …` | Numbered selection menu on stderr; the chosen item on stdout. Policy-free — no TTY or CI handling. |
 | `prompt_input "question" [default]` | Free-text prompt on stderr; the entered value on stdout. Policy-free — no TTY or CI handling. |
+| `prompt_multiselect "prompt" "required_id" "off_ids" "id\|label" …` | Arrow-key checklist drawn on stderr; the chosen ids on stdout, one per line. Policy-free — no TTY or CI handling. |
 | `UI_WIDTH` | Shared width, so banners and section rules line up. |
 
 ### `lib/log.sh` — the run log
@@ -497,6 +508,7 @@ log file, no `/etc/os-release`, no markdown parsing, no `exit`.
 | `confirm "prompt"` | `prompt_yes_no` plus the auto-approve policy: `SETUP_ASSUME_YES=1`, or no TTY. |
 | `choose "prompt" default item …` | `prompt_choice` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`. |
 | `ask "prompt" [default]` | Free text plus the auto-answer policy: `SETUP_ASSUME_YES=1`, or no TTY, takes `default`; fails when there is no default. |
+| `select_steps "prompt" "required_id" "id\|label" …` | `prompt_multiselect` plus the non-interactive policy: `SETUP_ASSUME_YES=1`, or no TTY, selects every step minus `SKIP_STEPS`. |
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
 
@@ -575,6 +587,37 @@ edit the [Requirements](#requirements) bullets: the preflight reads the wording
 from there at run time, so a typo in that section shows up on your terminal as
 a mismatched or unverified check.
 
+### Choosing steps
+
+Right after the run confirmation, `main.sh` shows the steps it can run as a live
+checklist and lets you pick which to run:
+
+```
+▶  Steps to run
+────────────────────────────────────────────────────────────
+  ▶  [x]   1. System update & base packages   (required)
+     [x]   2. Zsh + Oh-My-Zsh
+     [x]   3. Docker Engine
+     ...
+     [x]  12. NVIDIA drivers (GPU-gated)
+
+     ↑/↓ move · space toggle · a all · n none · Enter continue · q quit
+```
+
+Everything starts selected. `↑`/`↓` (or `j`/`k`) move the cursor, `space` toggles
+the highlighted step, `a` selects all, `n` deselects all but the first, `Enter`
+confirms and `q` aborts the run. Step 1 (system update & base packages) is the
+bootstrap the later steps depend on, so it is always selected — the cursor can
+land on it, but `space` there is rejected. A deselected step prints a
+`Skipping: …` line and is otherwise untouched; the three already-gated steps
+(firefox, xbox, nvidia) keep their own hardware checks and prompts when they are
+selected.
+
+In a non-interactive run the choice comes from `SKIP_STEPS` (see
+[Configuration](#configuration)): with no terminal, or with
+`SETUP_ASSUME_YES=1`, every step except those listed runs. The same list also
+pre-deselects those steps in the interactive checklist.
+
 ### SSH keys up front
 
 Immediately after the run confirmation, `main.sh` calls `ssh_preflight`, so the
@@ -615,6 +658,10 @@ Two things must be true for `main.sh` to run with no terminal:
 - The invoking user is `root`, or has passwordless `sudo`. When a TTY is
   present the script caches `sudo` credentials once; an unattended run cannot
   answer a password prompt, so `sudo` must not ask.
+
+With no terminal every step runs, exactly as a clean clone always has. Set
+`SKIP_STEPS` to skip steps unattended — `SKIP_STEPS="vscode php nvidia"` — rather
+than maintaining a fork with the `*_setup` calls removed.
 
 Non-interactive apt is handled for you: the entrypoint exports
 `DEBIAN_FRONTEND=noninteractive`, `NEEDRESTART_MODE=a` and
@@ -673,8 +720,9 @@ something_setup() {
 }
 ```
 
-Then source it from `main.sh` alongside the other libraries and add a numbered
-section for the `*_setup` call.
+Then source it from `main.sh` alongside the other libraries, add an
+`id|label` entry to `_STEP_SPECS` there, and add a `run_step id` section in the
+run order. The registry is what puts the step in the `Steps to run` checklist.
 
 A few rules keep the layering intact:
 
@@ -689,10 +737,10 @@ A few rules keep the layering intact:
 - **A new hard prerequisite needs two edits:** a `key|predicate|detail` row in
   `_REQ_CHECKS` in `lib/preflight.sh`, and a matching bullet in this file's
   [Requirements](#requirements) section. Miss either and the run says so.
-- **A new file needs two edits too:** a `source` line in `main.sh`, and an entry
-  in `REQUIRED_FILES` in `scripts/build-archive.sh`. The archive payload is an
-  allowlist, so a module that is not listed works from a clone and is silently
-  missing from a release.
+- **A new file needs three edits:** a `source` line in `main.sh`, a `_STEP_SPECS`
+  registry entry (and a `run_step` call), and an entry in `REQUIRED_FILES` in
+  `scripts/build-archive.sh`. The archive payload is an allowlist, so a module
+  that is not listed works from a clone and is silently missing from a release.
 - **Indent is 4 spaces, no tabs,** in every `.sh` file — one level per block,
   including the payload of a `bash -c '…'` string. Here-doc bodies start at
   column 0, because `<<EOF` strips the indentation but not the content.

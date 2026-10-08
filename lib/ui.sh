@@ -291,3 +291,150 @@ prompt_input() {
         warn 'a value is required'
     done
 }
+
+# ── _multiselect_readkey ──────────────────────────────────────────────────────
+# Read one keypress without Enter, returning the key on stdout. Arrow keys are
+# escape sequences, so a leading ESC is followed by two short-timeout reads; a
+# lone ESC returns just `\e`. Returns 1 on EOF. No terminal changes leak out:
+# each `read` restores its own mode, and the caller owns any longer-lived state.
+#
+# The key deliberately goes to *stdout* even though the checklist draws on
+# stderr: the caller captures it with `key="$(...)"`, so stdout is the value
+# channel here. Redirecting this one would hand the caller an empty key and
+# freeze the loop.
+_multiselect_readkey() {
+    local key='' k2='' k3=''
+    IFS= read -rsn1 key || return 1
+    if [[ "$key" == $'\e' ]]; then
+        IFS= read -rsn1 -t 0.1 k2 || k2=''
+        IFS= read -rsn1 -t 0.1 k3 || k3=''
+        key="${key}${k2}${k3}"
+    fi
+    printf '%s' "$key"
+}
+
+# ── prompt_multiselect ─────────────────────────────────────────────────────────
+# prompt_multiselect "prompt" "required_id" "off_ids" "id|label" ... — an
+# interactive checklist. Arrow keys (or j/k) move a cursor, space toggles the
+# highlighted item, `a` selects all, `n` deselects all except the required id,
+# Enter accepts, `q` aborts (returns 1). The checklist is drawn on stderr and
+# redrawn in place with ANSI cursor movement; the chosen ids are printed to
+# stdout, one per line, so a caller captures them with $(...).
+#
+# `required_id` (may be empty) is an id that cannot be toggled off and is shown
+# `(required)`. `off_ids` is a space-padded, space-separated list of ids that
+# start unchecked — e.g. ` vscode php `. Like prompt_yes_no/prompt_choice this is
+# policy-free: it always reads the terminal — see select_steps in lib/preflight.sh
+# for the TTY/CI handling.
+prompt_multiselect() {
+    local prompt="${1:?prompt required}" required="${2:-}" off="${3:-}"; shift 3
+    local -a specs=( "$@" )
+    local total=${#specs[@]}
+    (( total > 0 )) || return 1
+
+    local -a ids=() labels=()
+    local -A on=()
+    local spec id label i
+    for spec in "${specs[@]}"; do
+        id="${spec%%|*}"; label="${spec#*|}"
+        ids+=( "$id" ); labels+=( "$label" )
+        if [[ "$id" == "$required" ]] || [[ "$off" != *" $id "* ]]; then
+            on["$id"]=1
+        else
+            on["$id"]=0
+        fi
+    done
+
+    local cursor=1
+    local _ms_lines=$(( total + 5 ))
+    local _ms_first=1
+    local _ms_note=''
+    local rule help
+    printf -v rule "%${UI_WIDTH}s" ''
+    rule="${rule// /─}"
+    help='↑/↓ move · space toggle · a all · n none · Enter continue · q quit'
+
+    # _multiselect_render redraws the whole checklist in place. It is defined
+    # inside prompt_multiselect so it reads the caller's locals (dynamic scope):
+    # prompt, rule, help, total, ids, labels, on, cursor, required, _ms_lines,
+    # _ms_first and _ms_note. _ms_lines is the exact number of lines it emits,
+    # which is what makes the cursor-up redraw stay in place.
+    # Every draw goes to stderr, never stdout: the caller captures the chosen
+    # ids with `$(select_steps ...)`, so a bare printf here would swallow the
+    # whole checklist into the caller's variable and leave the terminal blank
+    # while the loop waits for a keypress nobody can see.
+    _multiselect_render() {
+        local i box mark reqtag
+
+        if (( ! _ms_first )); then
+            printf '\033[%dA\r' "$_ms_lines" >&2
+        fi
+        _ms_first=0
+
+        printf '\033[2K\n' >&2
+        printf '\033[2K  %s▶%s  %s%s%s\n' "$CYAN" "$NC" "$BOLD" "$prompt" "$NC" >&2
+        printf '\033[2K%s%s%s\n' "$CYAN" "$rule" "$NC" >&2
+        for (( i = 0; i < total; i++ )); do
+            if (( i + 1 == cursor )); then
+                mark="  ${CYAN}▶${NC}  "
+            else
+                mark='     '
+            fi
+            if [[ "${on[${ids[i]}]}" == 1 ]]; then
+                box="${GREEN}[x]${NC}"
+            else
+                box='[ ]'
+            fi
+            if [[ "${ids[i]}" == "$required" ]]; then
+                reqtag="  ${YELLOW}(required)${NC}"
+            else
+                reqtag=''
+            fi
+            printf '\033[2K%s%s  %2d. %s%s\n' \
+                "$mark" "$box" "$(( i + 1 ))" "${labels[i]}" "$reqtag" >&2
+        done
+        if [[ -n "$_ms_note" ]]; then
+            printf '\033[2K  %s!%s  %s\n' "$YELLOW" "$NC" "$_ms_note" >&2
+        else
+            printf '\033[2K\n' >&2
+        fi
+        printf '\033[2K  %s%s%s\n' "$CYAN" "$help" "$NC" >&2
+    }
+
+    _multiselect_render
+    local key
+    while :; do
+        _ms_note=''
+        key="$(_multiselect_readkey)" || break
+        case "$key" in
+            '') break ;;
+            $'\e[A'|'k') cursor=$(( cursor > 1 ? cursor - 1 : total )) ;;
+            $'\e[B'|'j') cursor=$(( cursor < total ? cursor + 1 : 1 )) ;;
+            ' ')
+                if [[ "${ids[cursor-1]}" == "$required" ]]; then
+                    _ms_note="step $cursor is required — cannot be deselected"
+                elif [[ "${on[${ids[cursor-1]}]}" == 1 ]]; then
+                    on["${ids[cursor-1]}"]=0
+                else
+                    on["${ids[cursor-1]}"]=1
+                fi
+                ;;
+            'a') for (( i = 0; i < total; i++ )); do on["${ids[i]}"]=1; done ;;
+            'n') for (( i = 0; i < total; i++ )); do
+                     [[ "${ids[i]}" == "$required" ]] || on["${ids[i]}"]=0
+                 done ;;
+            'q')
+                printf '\n' >&2
+                return 1 ;;
+        esac
+        _multiselect_render
+    done
+
+    local out=''
+    for (( i = 0; i < total; i++ )); do
+        [[ "${on[${ids[i]}]}" == 1 ]] || continue
+        out+="${ids[i]}"$'\n'
+    done
+    printf '%s' "$out"
+    return 0
+}
