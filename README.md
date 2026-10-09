@@ -134,7 +134,10 @@ are not installed — so the run exercises the bootstrap in
 `setup/base_packages.sh` rather than being handed its prerequisites. This needs
 a working Docker daemon and outbound network (Launchpad PPAs, Oh-My-Zsh, VS
 Code, Docker's repository), and the full desktop/media set makes a run several
-GB and several minutes per release.
+GB and several minutes per release. The image build retries up to three times
+against transient registry failures (a Docker Hub auth outage once failed every
+run before it started), and the container run streams `main.sh`'s output live:
+a run that prints moving step lines for many minutes is normal, not a hang.
 
 ## What gets installed
 
@@ -142,17 +145,26 @@ GB and several minutes per release.
 
 1. **System update & base packages** — `apt update` and `apt upgrade`, the
    `universe` and `multiverse` components, and the third-party PPAs listed under
-   [Notes](#notes). The package set is split in two: a small core the run cannot
-   continue without (`build-essential`, `curl`, `wget`, `zip`, `unzip`, `git`,
-   `zsh`, `gnupg`, `ca-certificates`, `lsb-release`, `xclip`, `htop`, `tmux`)
-   and a best-effort desktop/media set (`ubuntu-restricted-extras`, `bat`,
-   `fd-find`, `xsel`, `btop`, `fastfetch`, `synaptic`, `apt-xapian-index`,
-   `powerline`, `fonts-powerline`, `dconf-editor`, `libglib2.0-dev-bin`,
-   `gnome-shell-extension-manager`, `gnome-tweaks`, `solaar`, `deluge`, `mpv`,
-   `celluloid`, `libreoffice`, `libreoffice-style-sifr`, `pipx`, plus the
-   PPA-only `gdm-settings` and `grub-customizer`). A package the running release
-   does not carry is warned about and skipped, never fatal; only a missing core
-   package stops the run. `batcat` is symlinked to `bat`.
+   [Notes](#notes). The package set is split in three: a small core the run
+   cannot continue without (`build-essential`, `curl`, `wget`, `zip`, `unzip`,
+   `git`, `zsh`, `gnupg`, `ca-certificates`, `lsb-release`, `xclip`, `htop`,
+   `tmux`); a best-effort desktop-neutral set that suits any desktop or none
+   (`ubuntu-restricted-extras`, `bat`, `fd-find`, `xsel`, `btop`, `fastfetch`,
+   `synaptic`, `apt-xapian-index`, `powerline`, `fonts-powerline`,
+   `libglib2.0-dev-bin`, `solaar`, `deluge`, `mpv`, `libreoffice`,
+   `libreoffice-style-sifr`, `pipx`, plus the PPA-only `grub-customizer`); and
+   a desktop-specific set picked from the detected desktop environment: GNOME
+   gets `gnome-shell-extension-manager`, `gnome-tweaks`, `dconf-editor` and
+   `celluloid` (a GTK frontend for `mpv`); Cinnamon, MATE, Budgie and Unity get
+   `dconf-editor` (they read their settings from dconf); Xfce gets
+   `xfce4-goodies`; KDE, LXQt and an undetected desktop get no extras at all.
+   Detection reads `SETUP_DESKTOP` first, then `XDG_CURRENT_DESKTOP`,
+   `XDG_SESSION_DESKTOP` and `DESKTOP_SESSION`, then the session saved in
+   `/var/lib/AccountsService/users/<you>`, then the installed session package —
+   with two installed desktops counting as ambiguous rather than guessed. A
+   package the running release does not carry is warned about and skipped,
+   never fatal; only a missing core package stops the run. `batcat` is
+   symlinked to `bat`.
 2. **Zsh + Oh-My-Zsh** — installed without prompts, and set as the default shell.
    Powerlevel10k runs in `powerline` mode to match the `fonts-powerline` that
    step 1 installs, and your `.zshrc` gets idempotently appended aliases and
@@ -239,12 +251,19 @@ XBOX_DONGLE_IDS=""                     # optional override; empty auto-detects t
 INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
 NVIDIA_DRIVER=""                       # empty = latest proprietary; a branch (e.g. 580) pins it; "recommended" defers to Ubuntu
 SKIP_STEPS=""                          # optional: space-, tab- or comma-separated step ids to skip (e.g. "vscode php nvidia")
+SETUP_DESKTOP=""                       # optional: force step 1's desktop (gnome, cinnamon, xfce, mate, kde, lxqt, budgie, unity, unknown)
 ```
 
 `SKIP_STEPS` lists steps to skip, by their id in the [Status](#status) table.
 Interactively it pre-deselects those steps in the checklist; in an unattended run
 it is the only selection — every step not listed runs, and step 1 is always
 included regardless. A listed id that names no step is warned about and ignored.
+
+`SETUP_DESKTOP` pins step 1's desktop detection instead of the machine's own
+session: one of `gnome`, `cinnamon`, `xfce`, `mate`, `kde`, `lxqt`, `budgie`,
+`unity`, or `unknown` to skip detection entirely and install only the
+desktop-neutral package set. An id that names no desktop is warned about and
+detection proceeds normally.
 
 Some settings are arrays edited in place rather than exported — the global
 Composer packages in `_COMPOSER_GLOBAL_PACKAGES` in `setup/php.sh` and the
@@ -408,7 +427,10 @@ step runs last.
 - `add_custom_repositories` re-adds every PPA and reinstalls the whole base set
   on each run. Harmless — `apt install` on an installed package is a no-op, and
   `add-apt-repository` on an already-added PPA is a no-op — but slower than it
-  needs to be, and the only step that is not re-runnable cheaply.
+  needs to be, and the only step that is not re-runnable cheaply. The index
+  refresh is already batched, though: each `add-apt-repository` runs with `-n`
+  where supported, so the seven PPAs (and the `universe`/`multiverse` enable)
+  cost one explicit `apt update` instead of nine.
 - Of the seven PPAs, only two supply a package that is not in the Ubuntu archive
   (`gdm-settings` and `grub-customizer`). The other five are kept for newer
   builds of packages the archive already has; dropping them is a separate call.
@@ -519,6 +541,8 @@ is the guide to consuming them from a script of your own.
 | `select_one "prompt" "default_id" "id\|label" …` | `prompt_select_one` plus the auto-select policy: `SETUP_ASSUME_YES=1`, or no usable terminal, takes `default_id` (first item when the id is unknown). Returns 1 on an interactive abort (`q`/Ctrl-D), 2 when there is nothing to choose from. |
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
+| `detect_desktop_environment` | Print the machine's desktop id (`gnome`, `cinnamon`, `xfce`, `mate`, `kde`, `lxqt`, `budgie`, `unity`), `unknown` when none — or more than one — matches. Order: `SETUP_DESKTOP`, the XDG session variables, the account's saved session, the installed session package. |
+| `_normalize_desktop_token` | Map one session token (`X-Cinnamon`, `ubuntu`, `plasmawayland`) to a desktop id; fails when the token names no desktop. |
 
 Each requirement needs a check, registered as a `key|predicate|detail` row in
 `_REQ_CHECKS`. The `key` must appear as a whole word in the matching README
@@ -703,6 +727,7 @@ capture.
 | `SOFT_PREFLIGHT=1` | Report failed requirement checks as warnings and carry on instead of aborting. |
 | `PREFLIGHT_README` | The markdown file `preflight` reads: a clone's `README.md` one level above `lib/` by default. The legacy `UI_README` name is still honoured. |
 | `SKIP_STEPS` | Space-, tab- or comma-separated ids for `select_steps` to pre-deselect interactively, or to drop entirely in an unattended run. |
+| `SETUP_DESKTOP` | Pin step 1's desktop detection to a fixed id (`gnome`, `cinnamon`, `xfce`, `mate`, `kde`, `lxqt`, `budgie`, `unity`; `unknown` = desktop-neutral set only, no detection). An id that names no desktop warns and detection proceeds normally. |
 
 ### Gotchas
 
@@ -863,11 +888,13 @@ Non-interactive apt is handled for you: the entrypoint exports
 `DEBIAN_FRONTEND=noninteractive`, `NEEDRESTART_MODE=a` and
 `APT_LISTCHANGES_FRONTEND=none`, and pre-accepts the core-fonts EULA that
 `ubuntu-restricted-extras` pulls in. The base package set is split into a small
-core (missing → the run stops) and desktop/media extras (missing → warned about
-and skipped). That is what makes the same script work across 22.04, 24.04 and
-26.04, where packages come and go — for example `fastfetch` is absent before
-24.04, and a PPA that publishes no suite for the release is skipped rather than
-failing the run.
+core (missing → the run stops), desktop-neutral extras (missing → warned about
+and skipped) and desktop-specific extras picked from the detected desktop —
+which `SETUP_DESKTOP` pins unattended: `SETUP_DESKTOP=gnome`, or
+`SETUP_DESKTOP=unknown` for the neutral set with no detection at all. That is
+what makes the same script work across 22.04, 24.04 and 26.04, where packages
+come and go — for example `fastfetch` is absent before 24.04, and a PPA that
+publishes no suite for the release is skipped rather than failing the run.
 
 ### When a step goes wrong
 
@@ -950,9 +977,13 @@ A few rules keep the layering intact:
   archives (LibreOffice, Solaar, mpv, deadbeef, gnome-mpv, grub-customizer, GDM
   settings) and installs packages straight out of them, so dropping the
   `add-apt-repository` lines means also dropping the packages that only exist
-  there. `setup/php.sh` deliberately does not add a PHP PPA: it installs the
-  distribution's own PHP, so the version tracks the Ubuntu release rather than
-  upstream.
+  there. Two of the seven are gated: `gnome-mpv` is probed only on a GTK
+  desktop, where the `celluloid` package it builds belongs, and `gdm-settings`
+  only when the detected desktop is GNOME *and* GDM is the active display
+  manager (`/etc/X11/default-display-manager`) — any other machine never
+  probes, let alone adds, them. `setup/php.sh` deliberately does not add a PHP
+  PPA: it installs the distribution's own PHP, so the version tracks the Ubuntu
+  release rather than upstream.
 - **A PPA without a suite for your Ubuntu is skipped, never fatal.** `apt update`
   exits 100 on any configured repository it cannot fetch, so one dead PPA would
   otherwise abort the whole run at step 1 — which is exactly what
