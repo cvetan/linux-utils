@@ -112,7 +112,7 @@ write_zshrc() {
 export ZSH="__OMZ_DIR__"
 
 # Powerlevel10k settings (must be set before oh-my-zsh is sourced)
-POWERLEVEL9K_MODE="powerline"
+POWERLEVEL9K_MODE="nerdfont-complete"
 POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
 POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir vcs)
 POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status root_indicator)

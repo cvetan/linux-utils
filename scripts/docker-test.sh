@@ -33,12 +33,19 @@
 # base pull — but Docker Desktop prunes unreferenced base images, and a
 # transient auth.docker.io failure (504s seen in the wild) used to fail every
 # run before it started. The container run streams main.sh's output live
-# instead of hiding it behind `run`'s spinner: a full run is many minutes and
-# several GB, and silence behind a frozen spinner reads like a hang. The
+# instead of hiding it behind a single host-side spinner: a full run is many
+# minutes and several GB, and one frozen label reads like a hang. The container
+# is given a pseudo-TTY (-t), so main.sh's OWN per-step spinner activates
+# inside it — each `run` shows a live-changing label that streams through
+# `tee`. Without that pty, main.sh would be silent during every long step: its
+# command output goes to a log file inside the container and its spinner is a
+# no-op with no TTY, leaving nothing but a blinking cursor for minutes. The
 # docker client's own status is taken from PIPESTATUS[0] — a failing `tee`
 # (disk full) is reported separately, never as a test failure — and translated
-# into a plain-language verdict: timeout, OOM-kill, or "the daemon died
-# mid-run" (the Docker Desktop / WSL crash case).
+# into a plain-language verdict: timeout, OOM-kill, "the daemon died mid-run"
+# (the Docker Desktop / WSL crash case), or an external kill of the client
+# while the container was still healthy (a watchdog, Docker Desktop's restart
+# button — anything outside this script).
 #
 # Environment:
 #   RUNS            Number of times to run main.sh inside the container
@@ -103,10 +110,13 @@ Environment:
 
 Notes:
   The image build retries up to 3 times on transient registry failures, and the
-  container run streams main.sh's output live. A full run takes many minutes
-  and downloads several GB. On failure the script reports the container's real
-  state (OOM-kill, timeout, or a dead Docker daemon) and cleans up after
-  itself; a wedged Docker Desktop can be recovered with `wsl --shutdown`.
+  container run streams main.sh's output live — the container gets a
+  pseudo-TTY, so main.sh's own per-step spinner is visible while it works. A
+  full run takes many minutes and downloads several GB. On failure the script
+  reports the container's real state (OOM-kill, timeout, a dead Docker daemon,
+  or an external kill of the client while the container kept running) and
+  cleans up after itself; a wedged Docker Desktop can be recovered with
+  `wsl --shutdown`.
 
 Options:
   -h, --help  Show this message.
@@ -196,12 +206,18 @@ snapshot_repo() {
 # the container's several GB land in the VM's disk, and a VM that fills up
 # wedges Docker Desktop and takes WSL with it. MIN_FREE_GB=0 skips the probe;
 # an unreadable probe only warns — the run itself gets the final say.
+# The probe sits behind a spinner: it starts a container and can take a while,
+# and a silent terminal reads like a hang. The spinner draws on this shell's
+# stdout (the terminal), not on the captured pipeline inside $(...) — the two
+# channels are separate, so the frames cannot end up in the captured value.
 check_disk_space() {
     local image="$1" avail_kb='' avail_gb
     (( MIN_FREE_GB > 0 )) || return 0
 
+    spinner_start 'Probing free disk space inside the Docker VM'
     avail_kb="$(with_timeout 60 docker run --rm --entrypoint df "$image" -k / \
         2>/dev/null | awk 'NR == 2 { print $4 }')" || avail_kb=''
+    spinner_stop
     if [[ ! "$avail_kb" =~ ^[0-9]+$ ]]; then
         warn 'Could not probe free disk space inside the Docker VM — continuing'
         return 0
@@ -249,14 +265,37 @@ build_image() {
     return "$rc"
 }
 
+# dump_failure_state name — a post-mortem for a failed run: the container's
+# recorded state and the tail of its output, appended to $LOG_FILE. Without it
+# the only trace of why a run died is the docker client's exit code — which
+# cannot tell "main.sh failed" from "the container was restarted out from under
+# it". Best-effort: the verdict must never fail because the dump did.
+dump_failure_state() {
+    local name="$1"
+    {
+        printf '\n===== failure post-mortem: %s =====\n' "$name"
+        timeout 15 docker inspect "$name" 2>&1 || true
+        printf -- '----- last container output -----\n'
+        timeout 15 docker logs --tail 40 "$name" 2>&1 || true
+        printf '===== end post-mortem =====\n'
+    } >> "$LOG_FILE" 2>&1 || true
+}
+
 # report_run_failure name release rc — the verdict for a failed container run,
 # taken from the container's own recorded state rather than the docker
-# client's exit code. The three cases that used to be indistinguishable
-# garbage exits:
+# client's exit code. The cases that used to be indistinguishable garbage exits:
 #   * the daemon died mid-run (Docker Desktop / WSL crashed): inspecting the
 #     container fails and `docker info` no longer answers;
 #   * the container was OOM-killed: .State.OOMKilled is true;
-#   * a real main.sh failure: .State.ExitCode is main.sh's own status.
+#   * the client was killed while the container was still running: an external
+#     interruption (a watchdog, Docker Desktop's restart button, a pkill from
+#     elsewhere) — .State.ExitCode of a LIVE container is the placeholder 0,
+#     and printing it as "main.sh exit 0" used to read like a clean exit that
+#     somehow failed anyway;
+#   * a real main.sh failure: the container exited, and .State.ExitCode is
+#     main.sh's own status.
+# Whenever the container still exists, its state and last output are appended
+# to $LOG_FILE first (dump_failure_state), so the verdict can be checked.
 report_run_failure() {
     local name="$1" release="$2" rc="$3"
     local state='' status='' oom='' exitcode=''
@@ -279,6 +318,12 @@ report_run_failure() {
     status="${state%% *}"
     oom="${state##* }"
 
+    # The daemon still has the container, so there is a real state to dump.
+    if [[ -n "$status" ]]; then
+        dump_failure_state "$name"
+        warn "Container state and last output appended to $LOG_FILE"
+    fi
+
     if [[ "$oom" == 'true' ]]; then
         error "FAILED: ubuntu:$release — the container was OOM-killed"
         warn 'The Docker VM ran out of memory. Raise its memory limit in Docker Desktop,'
@@ -287,6 +332,28 @@ report_run_failure() {
     fi
 
     if [[ -n "$status" ]]; then
+        # Still alive ⇒ main.sh did not fail; the CLIENT was killed. A timeout
+        # is the only in-script possibility (124), everything else came from
+        # outside this script. Reported before the exit-code verdict, because
+        # that verdict would print the live container's placeholder 0 as if
+        # main.sh had exited cleanly.
+        case "$status" in
+            running|restarting|paused|created)
+                if (( rc == 124 )); then
+                    error "FAILED: ubuntu:$release — stopped after RUN_TIMEOUT=${RUN_TIMEOUT}s"
+                    warn "main.sh was still running inside the container when the client was killed"
+                else
+                    error "FAILED: ubuntu:$release — the docker client was killed (exit $rc) while the container was still running"
+                    case "$rc" in
+                        143) warn 'The docker run client received SIGTERM — something outside this script stopped it' ;;
+                        137) warn 'The docker run client received SIGKILL — something outside this script stopped it' ;;
+                    esac
+                    warn "The container was '$status' with main.sh still at work — not a main.sh failure"
+                fi
+                return 0
+                ;;
+        esac
+
         exitcode="$(timeout 15 docker inspect -f '{{.State.ExitCode}}' \
             "$name" 2>/dev/null || printf '?')"
         case "$rc" in
@@ -323,7 +390,18 @@ run_release() {
     section "Testing on ubuntu:$release"
 
     __container_name="$IMAGE_PREFIX-$release"
-    run_flags=( --name "$__container_name" --init )
+    # -t, deliberately not -it: a pseudo-TTY lets main.sh's own per-step
+    # spinner run inside the container (`spinner_supported` is `[[ -t 1 ]]`),
+    # with the frames streaming through `tee` below. stdin stays unattached, so
+    # no prompt can ever block on the pty — and every prompt in this repo is
+    # gated by SETUP_ASSUME_YES=1 (baked into the image) as a second line of
+    # defence. Known cosmetic side effect: the pty's ONLCR and the spinner's
+    # own \r put carriage returns into the host log copy — harmless, and they
+    # must NOT be stripped, or the \r-based spinner redraw stops working.
+    # Bonus: when the docker client dies (RUN_TIMEOUT), the pty closes and the
+    # container's session gets SIGHUP, so it exits on its own instead of
+    # orphaning — the EXIT trap's `docker rm -f` is still the backstop.
+    run_flags=( --name "$__container_name" --init -t )
 
     if [[ -n "${TEST_MEMORY:-}" ]]; then
         run_flags+=( --memory "$TEST_MEMORY" )
@@ -358,11 +436,15 @@ run_release() {
 
     check_disk_space "$image" || return 1
 
-    # Live output instead of `run`'s spinner: this step IS the test — many
-    # minutes inside the container — and `run` would swallow every step label
-    # behind one frozen spinner, which reads like a hang. `tee` keeps the log
-    # copy; with no TTY on the container's stdout, main.sh's own spinner stays
-    # off and its step lines stream cleanly.
+    # Live streaming instead of wrapping this in `run`: this step IS the test —
+    # many minutes inside the container — and a single host-side spinner would
+    # swallow every step label behind one frozen frame, which reads like a
+    # hang. The container has a pseudo-TTY (see run_flags above), so main.sh's
+    # OWN per-step spinner runs inside it and streams through `tee`: each step
+    # announces its own label, and the frames redraw on the pty. The -t is what
+    # makes this possible — without it main.sh is silent for the whole of every
+    # long step (output goes to a log file inside the container, spinner off),
+    # which used to leave nothing but a blinking cursor on the host.
     #
     # The status handling is deliberate: `$?` after a pipefail pipeline is the
     # MERGED status, so a failing `tee` (disk full) used to read as a failed

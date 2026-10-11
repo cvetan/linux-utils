@@ -136,8 +136,10 @@ a working Docker daemon and outbound network (Launchpad PPAs, Oh-My-Zsh, VS
 Code, Docker's repository), and the full desktop/media set makes a run several
 GB and several minutes per release. The image build retries up to three times
 against transient registry failures (a Docker Hub auth outage once failed every
-run before it started), and the container run streams `main.sh`'s output live:
-a run that prints moving step lines for many minutes is normal, not a hang.
+run before it started), and the container run streams `main.sh`'s output live.
+The container is given a pseudo-TTY, so `main.sh`'s own per-step spinner runs
+inside it and its frames stream to your terminal: a run that prints a moving
+spinner and step lines for many minutes is normal, not a hang.
 
 ## What gets installed
 
