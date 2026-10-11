@@ -191,6 +191,10 @@ extend_zshrc_path_aliases() {
 zsh_setup() {
     section 'Zsh + Oh-My-Zsh'
 
+    warn 'Powerlevel10k is configured for Nerd Fonts (nerdfont-complete).'
+    warn 'A Nerd Font is assumed — install one and select it in your terminal,'
+    warn 'or the prompt icons render as boxes.'
+
     _ZSHRC_PREEXISTED=0
     [[ -f "$HOME/.zshrc" ]] && _ZSHRC_PREEXISTED=1
 

@@ -168,10 +168,11 @@ spinner and step lines for many minutes is normal, not a hang.
    never fatal; only a missing core package stops the run. `batcat` is
    symlinked to `bat`.
 2. **Zsh + Oh-My-Zsh** — installed without prompts, and set as the default shell.
-   Powerlevel10k runs in `powerline` mode to match the `fonts-powerline` that
-   step 1 installs, and your `.zshrc` gets idempotently appended aliases and
-   `PATH` entries. Runs before the installers below because they write their init
-   into your shell config.
+   Powerlevel10k runs in `nerdfont-complete` mode, which requires and assumes a
+   Nerd Font installed and selected in your terminal (step 1 still installs
+   `fonts-powerline` for the Powerline glyph set other tools use), and your
+   `.zshrc` gets idempotently appended aliases and `PATH` entries. Runs before
+   the installers below because they write their init into your shell config.
 3. **Docker Engine** — installed from Docker's official apt repository (not
    distro packages), including Buildx and Compose v2 plugins. Conflicting legacy
    packages (`docker.io`, `podman-docker`, `containerd`, …) are removed first, and
