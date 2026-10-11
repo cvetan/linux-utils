@@ -78,6 +78,138 @@ _req_detail_sudo() {
     fi
 }
 
+# ── Desktop environment detection ─────────────────────────────────────────────
+
+# _normalize_desktop_token "token" — the canonical desktop id one session token
+# stands for, or a non-zero status when the token names no desktop we act on.
+# The vocabulary (also the values SETUP_DESKTOP accepts) is: gnome, cinnamon,
+# xfce, mate, kde, lxqt, budgie, unity. Tokens arrive in assorted spellings —
+# `X-Cinnamon`, `ubuntu:GNOME`, `plasmawayland`, `gnome-classic` — so this
+# matches substrings after lowercasing. `ubuntu` is GNOME: it is the name of
+# Ubuntu's own session and of its variants (`ubuntu-wayland`), while Pop!_OS and
+# Zorin reach the same branch through the `GNOME` half of their `pop:GNOME` and
+# `Zorin:GNOME` lists. Anything else (deepin, COSMIC, an unfinished install)
+# fails to normalize and is never guessed at.
+_normalize_desktop_token() {
+    local token="${1,,}"
+    case "$token" in
+        *cinnamon*)      printf 'cinnamon' ;;
+        *xfce*)          printf 'xfce' ;;
+        *mate*)          printf 'mate' ;;
+        *budgie*)        printf 'budgie' ;;
+        *lxqt*)          printf 'lxqt' ;;
+        *kde*|*plasma*)  printf 'kde' ;;
+        *unity*)         printf 'unity' ;;
+        *gnome*|ubuntu*) printf 'gnome' ;;
+        *)               return 1 ;;
+    esac
+}
+
+# detect_desktop_environment — print the canonical desktop id for this machine,
+# `unknown` when none can be established. Step 1 (setup/base_packages.sh) uses
+# it to pick the desktop-specific part of its package set.
+#
+# The order: an explicit SETUP_DESKTOP override first (unattended runs, tests,
+# and a machine detection gets wrong), then the session environment — reliable
+# when the setup runs from inside the desktop itself — then the session the
+# account last chose, which is the one signal an SSH or tty login still carries,
+# and last the installed session package, which is all a console boot offers.
+# That final step requires EXACTLY one candidate desktop: two installed
+# desktops are ambiguous, and guessing between them would install the wrong
+# extras, so both resolve to `unknown` and the caller falls back to the
+# desktop-neutral set.
+detect_desktop_environment() {
+    local id='' var value token entry pkg candidate line
+    local acct_file='' session='' xsession=''
+    local -a tokens=() session_pkgs=()
+    local -A installed=()
+
+    # ── Override ──────────────────────────────────────────────────────────────
+    # `unknown` is a deliberate answer (force the neutral set), not a failure.
+    if [[ -n "${SETUP_DESKTOP:-}" ]]; then
+        if [[ "$SETUP_DESKTOP" == 'unknown' ]]; then
+            printf 'unknown'
+            return 0
+        fi
+        if id="$(_normalize_desktop_token "$SETUP_DESKTOP")"; then
+            printf '%s' "$id"
+            return 0
+        fi
+        warn "SETUP_DESKTOP='${SETUP_DESKTOP}' matches no known desktop — falling through to detection"
+    fi
+
+    # ── Session environment ───────────────────────────────────────────────────
+    # XDG_CURRENT_DESKTOP is a colon-separated list (`ubuntu:GNOME`,
+    # `Zorin:GNOME`, `Budgie:GNOME`); the first token that normalizes wins, so
+    # the desktop's own name is honoured before the GNOME heritage it shares
+    # with other desktops. XDG_SESSION_DESKTOP and DESKTOP_SESSION carry the
+    # session file name (`cinnamon`, `xfce`, `ubuntu`).
+    for var in XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP DESKTOP_SESSION; do
+        value="${!var:-}"
+        [[ -n "$value" ]] || continue
+        IFS=':' read -r -a tokens <<< "$value"
+        for token in ${tokens[@]+"${tokens[@]}"}; do
+            if id="$(_normalize_desktop_token "$token")"; then
+                printf '%s' "$id"
+                return 0
+            fi
+        done
+    done
+
+    # ── The account's saved session ───────────────────────────────────────────
+    # /var/lib/AccountsService/users/<user> records the session the account
+    # last logged into (`Session=` on Wayland, `XSession=` on X11). No XDG
+    # variables survive an SSH or tty login, but this file does.
+    acct_file="/var/lib/AccountsService/users/$(id -un 2>/dev/null || true)"
+    if [[ -n "$acct_file" && -f "$acct_file" && -r "$acct_file" ]]; then
+        while IFS= read -r line; do
+            case "$line" in
+                Session=*)  session="${line#*=}" ;;
+                XSession=*) xsession="${line#*=}" ;;
+            esac
+        done < "$acct_file"
+        for token in "$session" "$xsession"; do
+            [[ -n "$token" ]] || continue
+            if id="$(_normalize_desktop_token "$token")"; then
+                printf '%s' "$id"
+                return 0
+            fi
+        done
+    fi
+
+    # ── Installed session package ─────────────────────────────────────────────
+    # A console boot carries no session information at all; the packages do.
+    # The session's own package per desktop, plus the distro meta package for
+    # Budgie, whose session has shipped under several names across releases.
+    # One installed desktop wins; none, or several, is `unknown` (see above).
+    session_pkgs=(
+        'cinnamon-session:cinnamon'
+        'xfce4-session:xfce'
+        'mate-session:mate'
+        'plasmashell:kde'
+        'gnome-shell:gnome'
+        'budgie-desktop:budgie'
+        'budgie-core:budgie'
+        'ubuntu-budgie-desktop:budgie'
+        'lxqt-session:lxqt'
+        'unity7:unity'
+    )
+    for entry in ${session_pkgs[@]+"${session_pkgs[@]}"}; do
+        pkg="${entry%%:*}"
+        candidate="${entry#*:}"
+        if [[ "$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null || true)" \
+              == 'install ok installed' ]]; then
+            installed["$candidate"]=1
+        fi
+    done
+    if (( ${#installed[@]} == 1 )); then
+        printf '%s' "${!installed[@]}"
+        return 0
+    fi
+
+    printf 'unknown'
+}
+
 # ── README lookup ─────────────────────────────────────────────────────────────
 
 # Default README path: one level up from lib/. Override with PREFLIGHT_README

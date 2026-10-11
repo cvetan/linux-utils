@@ -112,7 +112,7 @@ write_zshrc() {
 export ZSH="__OMZ_DIR__"
 
 # Powerlevel10k settings (must be set before oh-my-zsh is sourced)
-POWERLEVEL9K_MODE="powerline"
+POWERLEVEL9K_MODE="nerdfont-complete"
 POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD=true
 POWERLEVEL9K_LEFT_PROMPT_ELEMENTS=(os_icon dir vcs)
 POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(status root_indicator)
@@ -190,6 +190,10 @@ extend_zshrc_path_aliases() {
 # ── zsh_setup ────────────────────────────────────────────────────────────────
 zsh_setup() {
     section 'Zsh + Oh-My-Zsh'
+
+    warn 'Powerlevel10k is configured for Nerd Fonts (nerdfont-complete).'
+    warn 'A Nerd Font is assumed — install one and select it in your terminal,'
+    warn 'or the prompt icons render as boxes.'
 
     _ZSHRC_PREEXISTED=0
     [[ -f "$HOME/.zshrc" ]] && _ZSHRC_PREEXISTED=1
