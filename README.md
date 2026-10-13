@@ -103,69 +103,6 @@ refuses to publish an archive it has not checked first: the embedded checksums,
 the file list, the executable bit on `main.sh`, `bash -n` over every packaged
 script, and a read of the requirements back out of the extracted copy.
 
-## Testing in a container
-
-[`Dockerfile`](Dockerfile) builds a disposable sandbox — a bare Ubuntu, a
-non-root `tester` with passwordless `sudo`, and a `policy-rc.d` that keeps apt
-maintainer scripts from trying to start services in a container with no init.
-The repository is **not** baked in: `scripts/docker-test.sh` takes a frozen
-snapshot of the working tree and mounts that read-only at `/work`. Each
-invocation copies the tree once, up front, so a run is reproducible and cannot
-be corrupted by an edit made while it is in flight, and every run starts from a
-clean filesystem.
-
-```bash
-scripts/docker-test.sh              # 26.04, the default
-scripts/docker-test.sh 22.04 24.04 26.04
-```
-
-Each release is built once into `linux-utils-test:<release>` and run in a fresh
-`docker run --rm` container. Because the image is immutable and the container is
-discarded, a second run is a clean install again; the image itself is never
-modified. To test idempotency on an *already-configured* machine instead, run
-the setup twice in one container:
-
-```bash
-RUNS=2 scripts/docker-test.sh 26.04
-```
-
-The base image is deliberately bare — `curl` and `software-properties-common`
-are not installed — so the run exercises the bootstrap in
-`setup/base_packages.sh` rather than being handed its prerequisites. This needs
-a working Docker daemon and outbound network (Launchpad PPAs, Oh-My-Zsh, VS
-Code, Docker's repository), and the full desktop/media set makes a run several
-GB and several minutes per release. The image build retries up to three times
-against transient registry failures (a Docker Hub auth outage once failed every
-run before it started), and the container run streams `main.sh`'s output live.
-The container is given a pseudo-TTY, so `main.sh`'s own per-step spinner runs
-inside it and its frames stream to your terminal: a run that prints a moving
-spinner and step lines for many minutes is normal, not a hang.
-
-## Testing the JDK selection menu
-
-The container test can never exercise the Temurin JDK menu: `choose()` takes
-its silent auto-select path when `SETUP_ASSUME_YES=1` (which the image bakes
-in) or when stdin is not a terminal (which a `docker run` is not), and
-`sdkman_setup()` skips the whole selection whenever Java is already installed
-— an idempotency run, a re-used container, or the machine you already set up.
-`scripts/java-select-test.sh` closes that gap on the machine itself:
-
-```bash
-scripts/java-select-test.sh
-```
-
-It calls `resolve_java_version()` directly — never `sdkman_setup()`, so an
-already-installed Java does not short-circuit it — and feeds scripted
-keystrokes through a pseudo-TTY (util-linux `script`), so the interactive path
-is the one under test. Six cases assert that the build list is non-empty, the
-numbered menu with its `(default)` marker is drawn, picking an item returns
-exactly that build, bare Enter takes the default, invalid input warns and
-re-prompts, and the unattended fallback picks the *same* default. Nothing is
-installed and `~/.sdkman` is not modified.
-
-It needs SDKMAN already installed (run the `sdkman` step first) and a working
-`sdk list java`; `CASE_TIMEOUT` (default 60s) bounds each case.
-
 ## What gets installed
 
 `main.sh` runs the modules below in order; see [Status](#status).
@@ -475,8 +412,6 @@ linux-utils/
 ├── docs/
 │   ├── default-shell.md # why zsh runs second
 │   └── ssh-keys.md      # SSH key bundle format and example
-├── Dockerfile           # disposable sandbox image for scripts/docker-test.sh
-├── .dockerignore
 ├── main.sh              # entrypoint — owns shell options, logging, preflight
 ├── lib/
 │   ├── ui.sh            # colors, banners, sections, log levels, spinner, markdown
@@ -484,9 +419,7 @@ linux-utils/
 │   ├── utils.sh         # command_exists, _sudo, append_if_missing
 │   └── preflight.sh     # machine detection, requirement checks, confirmation
 ├── scripts/
-│   ├── build-archive.sh # package the repo into a makeself .run for a release
-│   ├── docker-test.sh   # run main.sh on a clean Ubuntu in a throwaway container
-│   └── java-select-test.sh # prove the Temurin JDK selection menu works (PTY)
+│   └── build-archive.sh # package the repo into a makeself .run for a release
 └── setup/
     ├── base_packages.sh # apt repositories + base packages
     ├── docker.sh        # Docker Engine from the official repo
