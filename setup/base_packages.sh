@@ -171,7 +171,7 @@ _supports_no_update() {
 }
 
 # curl, gnupg and add-apt-repository are not guaranteed on a minimal Ubuntu
-# image (nor in this repo's Dockerfile), yet the PPA probe below needs curl and
+# image, yet the PPA probe below needs curl and
 # adding a PPA needs add-apt-repository. Install them FIRST: otherwise every PPA
 # is skipped, and the install then fails on the packages that exist only there.
 install_repo_prerequisites() {
