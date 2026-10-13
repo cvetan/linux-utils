@@ -68,12 +68,15 @@ set_sdkman_config() {
 # list_temurin_versions — the Temurin identifiers SDKMAN offers, newest first.
 # `sdk list java` renders the same table whether or not it goes through a pager
 # (stdout is a pipe here, so it does not), and the Identifier column is the last
-# `|` field. Captured, never passed through `run`, so the table stays out of the
-# log. An empty result leaves the caller to fall back to `sdk install java`.
+# `|` field: ` Temurin | <use> | 21.0.12+1.1 | 21.0.12+1.1-tem` — four fields,
+# which is why the filter only demands NF >= 3 (a stricter count once matched
+# nothing, left the list empty and silently skipped the menu altogether).
+# Captured, never passed through `run`, so the table stays out of the log. An
+# empty result leaves the caller to fall back to `sdk install java`.
 list_temurin_versions() {
     sdk_run sdk list java 2>/dev/null \
         | awk -F'|' '
-            NF >= 6 {
+            NF >= 3 {
                 v = $NF
                 gsub(/^[ \t]+|[ \t]+$/, "", v)
                 if (v ~ /-tem$/) print v
