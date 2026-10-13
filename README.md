@@ -141,6 +141,31 @@ The container is given a pseudo-TTY, so `main.sh`'s own per-step spinner runs
 inside it and its frames stream to your terminal: a run that prints a moving
 spinner and step lines for many minutes is normal, not a hang.
 
+## Testing the JDK selection menu
+
+The container test can never exercise the Temurin JDK menu: `choose()` takes
+its silent auto-select path when `SETUP_ASSUME_YES=1` (which the image bakes
+in) or when stdin is not a terminal (which a `docker run` is not), and
+`sdkman_setup()` skips the whole selection whenever Java is already installed
+— an idempotency run, a re-used container, or the machine you already set up.
+`scripts/java-select-test.sh` closes that gap on the machine itself:
+
+```bash
+scripts/java-select-test.sh
+```
+
+It calls `resolve_java_version()` directly — never `sdkman_setup()`, so an
+already-installed Java does not short-circuit it — and feeds scripted
+keystrokes through a pseudo-TTY (util-linux `script`), so the interactive path
+is the one under test. Six cases assert that the build list is non-empty, the
+numbered menu with its `(default)` marker is drawn, picking an item returns
+exactly that build, bare Enter takes the default, invalid input warns and
+re-prompts, and the unattended fallback picks the *same* default. Nothing is
+installed and `~/.sdkman` is not modified.
+
+It needs SDKMAN already installed (run the `sdkman` step first) and a working
+`sdk list java`; `CASE_TIMEOUT` (default 60s) bounds each case.
+
 ## What gets installed
 
 `main.sh` runs the modules below in order; see [Status](#status).
@@ -460,7 +485,8 @@ linux-utils/
 │   └── preflight.sh     # machine detection, requirement checks, confirmation
 ├── scripts/
 │   ├── build-archive.sh # package the repo into a makeself .run for a release
-│   └── docker-test.sh   # run main.sh on a clean Ubuntu in a throwaway container
+│   ├── docker-test.sh   # run main.sh on a clean Ubuntu in a throwaway container
+│   └── java-select-test.sh # prove the Temurin JDK selection menu works (PTY)
 └── setup/
     ├── base_packages.sh # apt repositories + base packages
     ├── docker.sh        # Docker Engine from the official repo
