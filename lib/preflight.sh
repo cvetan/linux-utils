@@ -210,6 +210,57 @@ detect_desktop_environment() {
     printf 'unknown'
 }
 
+# ── WSL and graphical environment detection ──────────────────────────────────
+
+# is_wsl — are we running under the Windows Subsystem for Linux? Both signals
+# are WSL's own: the kernel release carries `microsoft` (WSL2:
+# `…-microsoft-standard-WSL2`, WSL1: `…-Microsoft`), and the interop layer
+# exports WSL_DISTRO_NAME / WSL_INTEROP into every session. Neither needs
+# anything installed, which matters because this runs before step 1.
+is_wsl() {
+    [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]] && return 0
+    local release=''
+    release="$(uname -r 2>/dev/null || true)"
+    [[ "${release,,}" == *microsoft* || "${release,,}" == *wsl* ]]
+}
+
+# gui_available — should this run install graphical software at all? Answered
+# once per run and memoized: the desktop probe below shells out to dpkg-query,
+# and main.sh, step 1 and the GUI steps all ask.
+#
+# The order: an explicit SETUP_GUI override first (1 = yes, 0 = no), then WSL —
+# Windows owns the desktop there, so a Linux desktop app has nothing to draw on
+# and the WSLg user says so with SETUP_GUI=1 — then a live display (a session,
+# or X forwarding over SSH), then a detected desktop environment, and last an
+# installed display manager, which is the signal a console or ssh login into a
+# desktop machine still leaves behind. Nothing found means no GUI.
+gui_available() {
+    if [[ -n "${_GUI_AVAILABLE:-}" ]]; then
+        [[ "$_GUI_AVAILABLE" == '1' ]]
+        return
+    fi
+
+    case "${SETUP_GUI:-}" in
+        1|yes|true) _GUI_AVAILABLE='1' ;;
+        0|no|false) _GUI_AVAILABLE='0' ;;
+        *)
+            if is_wsl; then
+                _GUI_AVAILABLE='0'
+            elif [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+                _GUI_AVAILABLE='1'
+            elif [[ "$(detect_desktop_environment)" != 'unknown' ]]; then
+                _GUI_AVAILABLE='1'
+            elif [[ -r /etc/X11/default-display-manager ]]; then
+                _GUI_AVAILABLE='1'
+            else
+                _GUI_AVAILABLE='0'
+            fi
+            ;;
+    esac
+
+    [[ "$_GUI_AVAILABLE" == '1' ]]
+}
+
 # ── README lookup ─────────────────────────────────────────────────────────────
 
 # Default README path: one level up from lib/. Override with PREFLIGHT_README

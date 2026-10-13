@@ -8,9 +8,13 @@
 #
 # The step is a no-op on a machine without an NVIDIA display controller: it
 # detects the card first and reports the skip, so the same run works on every
-# box. With a GPU it asks (INSTALL_NVIDIA overrides) and installs through
-# `ubuntu-drivers`, whose logic is the same as the "Additional Drivers" GUI and
-# which, on Secure Boot systems, picks the signed, prebuilt module.
+# box. It is also a no-op without a graphical environment and under WSL: Windows
+# owns the graphics driver there, and a headless box has no display to drive, so
+# a Linux driver would either fight the one already doing the work or load into
+# nothing. These gates are absolute — INSTALL_NVIDIA only bypasses the prompt
+# below. With a GUI and a GPU it asks and installs through `ubuntu-drivers`,
+# whose logic is the same as the "Additional Drivers" GUI and which, on Secure
+# Boot systems, picks the signed, prebuilt module.
 #
 # "Proprietary" here means the plain `nvidia-driver-<branch>` package: the
 # `-open` (NVIDIA open kernel modules) and `-server` branches are deliberately
@@ -31,7 +35,9 @@ source "$_setup_dir/../lib/log.sh"
 source "$_setup_dir/../lib/utils.sh"
 
 # INSTALL_NVIDIA: unset asks before installing; 1 installs, 0 skips, both without
-# a prompt. Honors the usual SETUP_ASSUME_YES / no-TTY policy through `confirm`.
+# a prompt. It only overrides the prompt — the WSL, GUI and GPU gates still decide
+# whether the step runs at all. Honors the usual SETUP_ASSUME_YES / no-TTY policy
+# through `confirm`.
 INSTALL_NVIDIA="${INSTALL_NVIDIA:-}"
 
 # NVIDIA_DRIVER: a branch number to pin (e.g. 580 → `nvidia:580`), or
@@ -124,6 +130,23 @@ nvidia_setup() {
     local branch=''
 
     section 'NVIDIA drivers'
+
+    # WSL mirrors the host's PCI devices into the distro, so the GPU check
+    # below would find a card that Windows — not Ubuntu — is already driving.
+    # `is_wsl` comes from lib/preflight.sh, which main.sh sources first.
+    if is_wsl; then
+        info 'Running under WSL — the Windows driver manages the GPU. Skipping.'
+        return 0
+    fi
+
+    # GUI-gated to match the deselection in main.sh: a headless box (a server, a
+    # container) has no display to drive, so the driver would only ever load into
+    # nothing. gui_available comes from lib/preflight.sh, which main.sh sources
+    # before the step modules (same as `confirm`).
+    if ! gui_available; then
+        info 'No graphical environment — skipping.'
+        return 0
+    fi
 
     if ! _nvidia_gpu_present; then
         info 'No NVIDIA GPU detected. Skipping.'

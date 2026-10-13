@@ -13,7 +13,9 @@
 # archive and installs `firefox` from it.
 #
 # It is gated hard, because it is destructive and pointless on most machines:
-# it runs only when `snap list firefox` finds the snap. With no real deb it does
+# never on a machine with no graphical environment (main.sh deselects the step
+# there, and gui_available gates it again inside), and otherwise only when
+# `snap list firefox` finds the snap. With no real deb it does
 # the swap; with a real deb already installed it only offers to remove the
 # leftover snap. Ubuntu's `1:1snap…` transition package does NOT count as a deb —
 # it is what pulls the snap in, so counting it would make this step never run on
@@ -123,6 +125,14 @@ firefox_setup() {
     local forced=0
 
     section 'Firefox (Mozilla APT build)'
+
+    # GUI-only: a browser has nothing to render on without a display, so the
+    # step is skipped the same way main.sh deselects it up front (see the
+    # vscode step for the same gate). SETUP_GUI=1 is the override.
+    if ! gui_available; then
+        info 'No graphical environment — skipping the Firefox deb swap (SETUP_GUI=1 to run it).'
+        return 0
+    fi
 
     case "${INSTALL_FIREFOX}" in
         0|no|false)

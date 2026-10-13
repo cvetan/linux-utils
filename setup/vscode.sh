@@ -3,9 +3,12 @@
 # setup/vscode.sh — Visual Studio Code from Microsoft's apt repository
 # =============================================================================
 # A step of main.sh, not a standalone program: it draws with lib/ui.sh and runs
-# commands with run_or_die, which main.sh defines.
+# commands with run_or_die, which main.sh defines. `gui_available` comes from
+# lib/preflight.sh, which main.sh sources before the step modules.
 #
-# Called from main.sh as step 4; remove that call to leave it out.
+# Called from main.sh as step 10 — near the end, with the other GUI step — and
+# skipped entirely on a machine with no graphical environment; remove that call
+# to leave it out.
 
 # ── Guard against double sourcing ─────────────────────────────────────────────
 [[ -n "${_VSCODE_SH_LOADED:-}" ]] && return
@@ -58,6 +61,15 @@ install_vscode() {
 vscode_setup() {
     section 'Visual Studio Code'
 
+    # GUI-only: on WSL, a server or a container there is no display to open a
+    # window on, so the step is skipped the same way main.sh deselects it up
+    # front. SETUP_GUI=1 is the override for a machine that knows better (WSLg,
+    # a remote X session).
+    if ! gui_available; then
+        info 'No graphical environment — skipping Visual Studio Code (SETUP_GUI=1 to install it).'
+        return 0
+    fi
+
     if command_exists code; then
         local version
         version="$(code --version 2>/dev/null | head -n1 || printf '')"
@@ -67,5 +79,15 @@ vscode_setup() {
         run_or_die 'Adding the VS Code repository' add_vscode_repo
         run_or_die 'Installing Visual Studio Code'  install_vscode
         info "VS Code installed. Launch it with 'code'."
+
+        # The git step runs BEFORE this one, so configure_git_editor could not
+        # find `code` when it looked and left core.editor unchanged. Re-apply it
+        # now — but only where a git identity is already configured, so this
+        # never conjures a ~/.gitconfig onto a machine that never asked for one.
+        if declare -F configure_git_editor >/dev/null 2>&1 \
+            && command_exists git \
+            && git config --global --get user.email >/dev/null 2>&1; then
+            configure_git_editor
+        fi
     fi
 }

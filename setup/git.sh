@@ -27,8 +27,11 @@ GIT_USER_EMAIL="${GIT_USER_EMAIL:-}"
 # but a machine can override it (e.g. GIT_DEFAULT_BRANCH=master).
 GIT_DEFAULT_BRANCH="${GIT_DEFAULT_BRANCH:-main}"
 
-# The editor git opens for commit messages. VS Code is installed by step 4;
-# `--wait` keeps git from returning before the editor is closed. Override with
+# The editor git opens for commit messages. VS Code is installed by step 10,
+# AFTER this step, so configure_git_editor below only sets the value on a
+# machine that already has `code`; setup/vscode.sh re-applies it once the
+# install has happened. `--wait` keeps git from returning before the editor is
+# closed. Override with
 # GIT_CORE_EDITOR, or set it to the empty string to leave the setting untouched.
 # Named GIT_CORE_EDITOR, not GIT_EDITOR, because git itself reads GIT_EDITOR
 # from the environment.

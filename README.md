@@ -109,26 +109,31 @@ script, and a read of the requirements back out of the extracted copy.
 
 1. **System update & base packages** — `apt update` and `apt upgrade`, the
    `universe` and `multiverse` components, and the third-party PPAs listed under
-   [Notes](#notes). The package set is split in three: a small core the run
+   [Notes](#notes). The package set is split in four: a small core the run
    cannot continue without (`build-essential`, `curl`, `wget`, `zip`, `unzip`,
    `git`, `zsh`, `gnupg`, `ca-certificates`, `lsb-release`, `xclip`, `htop`,
-   `tmux`); a best-effort desktop-neutral set that suits any desktop or none
-   (`ubuntu-restricted-extras`, `bat`, `fd-find`, `xsel`, `btop`, `fastfetch`,
-   `synaptic`, `apt-xapian-index`, `powerline`, `fonts-powerline`,
-   `libglib2.0-dev-bin`, `solaar`, `deluge`, `mpv`, `libreoffice`,
-   `libreoffice-style-sifr`, `pipx`, plus the PPA-only `grub-customizer`); and
-   a desktop-specific set picked from the detected desktop environment: GNOME
-   gets `gnome-shell-extension-manager`, `gnome-tweaks`, `dconf-editor` and
-   `celluloid` (a GTK frontend for `mpv`); Cinnamon, MATE, Budgie and Unity get
-   `dconf-editor` (they read their settings from dconf); Xfce gets
-   `xfce4-goodies`; KDE, LXQt and an undetected desktop get no extras at all.
-   Detection reads `SETUP_DESKTOP` first, then `XDG_CURRENT_DESKTOP`,
-   `XDG_SESSION_DESKTOP` and `DESKTOP_SESSION`, then the session saved in
-   `/var/lib/AccountsService/users/<you>`, then the installed session package —
-   with two installed desktops counting as ambiguous rather than guessed. A
-   package the running release does not carry is warned about and skipped,
-   never fatal; only a missing core package stops the run. `batcat` is
-   symlinked to `bat`.
+   `tmux`); a best-effort CLI set that suits any machine (`bat`, `fd-find`,
+   `xsel`, `btop`, `fastfetch`, `apt-xapian-index`, `powerline`,
+   `fonts-powerline`, `libglib2.0-dev-bin`, `pipx`); a best-effort **GUI set**
+   installed only where a graphical environment is detected
+   (`ubuntu-restricted-extras`, `synaptic`, `solaar`, `deluge`, `mpv`,
+   `libreoffice`, `libreoffice-style-sifr`, plus the PPA-only
+   `grub-customizer`); and a desktop-specific set picked from the detected
+   desktop environment: GNOME gets `gnome-shell-extension-manager`,
+   `gnome-tweaks`, `dconf-editor` and `celluloid` (a GTK frontend for `mpv`);
+   Cinnamon, MATE, Budgie and Unity get `dconf-editor` (they read their
+   settings from dconf); Xfce gets `xfce4-goodies`; KDE, LXQt and an undetected
+   desktop get no extras at all. Detection reads `SETUP_DESKTOP` first, then
+   `XDG_CURRENT_DESKTOP`, `XDG_SESSION_DESKTOP` and `DESKTOP_SESSION`, then the
+   session saved in `/var/lib/AccountsService/users/<you>`, then the installed
+   session package — with two installed desktops counting as ambiguous rather
+   than guessed. A package the running release does not carry is warned about
+   and skipped, never fatal; only a missing core package stops the run.
+   `batcat` is symlinked to `bat`. Without a graphical environment (WSL, a
+   server — see [No graphical environment](#no-graphical-environment)) this
+   step drops the GUI set, the desktop-specific set, every third-party PPA
+   (all seven serve GUI apps) and the core-fonts EULA preseed that only
+   `ubuntu-restricted-extras` needs.
 2. **Zsh + Oh-My-Zsh** — installed without prompts, and set as the default shell.
    Powerlevel10k runs in `nerdfont-complete` mode, which requires and assumes a
    Nerd Font installed and selected in your terminal (step 1 still installs
@@ -139,10 +144,7 @@ script, and a read of the requirements back out of the extracted copy.
    distro packages), including Buildx and Compose v2 plugins. Conflicting legacy
    packages (`docker.io`, `podman-docker`, `containerd`, …) are removed first, and
    your user is added to the `docker` group.
-4. **Visual Studio Code** — installed from Microsoft's apt repository.
-   Deselect it at the `Steps to run` prompt (or `SKIP_STEPS=vscode`) if a
-   machine should not get it.
-5. **Node.js + npm** — the distribution's own Node and npm, no third-party PPA
+4. **Node.js + npm** — the distribution's own Node and npm, no third-party PPA
    and no nvm, so the version tracks the Ubuntu release (12 on 22.04, 18 on
    24.04, 22 on 26.04). Debian/Ubuntu build `nodejs` `--without-npm`, so `npm`
    (which also ships `npx`) is a separate package. This is local tooling only:
@@ -150,17 +152,19 @@ script, and a read of the requirements back out of the extracted copy.
    when the archive version is past end-of-life. Global npm packages go to
    `~/.local` (`NPM_PREFIX`), so `npm install -g` needs no sudo and its bins land
    in `~/.local/bin`.
-6. **PHP + Composer** — the distribution's own PHP CLI, no third-party PPA, so
+5. **PHP + Composer** — the distribution's own PHP CLI, no third-party PPA, so
    the version tracks the Ubuntu release (8.1 on 22.04, 8.3 on 24.04, 8.5 on
    26.04), with the common extensions. Composer is installed to
    `~/.local/bin/composer` after a SHA-384 checksum verification.
-7. **SDKMAN + Java** — SDKMAN!, with a Temurin JDK chosen from a menu (or pinned
+6. **SDKMAN + Java** — SDKMAN!, with a Temurin JDK chosen from a menu (or pinned
    with `JAVA_VERSION`).
-8. **Git configuration** — the global identity (`user.name` / `user.email`,
+7. **Git configuration** — the global identity (`user.name` / `user.email`,
    prompted only when not already set), the default branch name (default `main`),
-   `push.default current` and a set of everyday defaults. See
-   [`setup/git.sh`](setup/git.sh).
-9. **SSH keys** — the plan is made up front: before anything is installed, the
+   `push.default current` and a set of everyday defaults. It runs before VS Code
+   (step 10) on purpose, so `core.editor` can only be pointed at `code --wait`
+   on a machine that already has it — the VS Code step re-applies the setting
+   after its install. See [`setup/git.sh`](setup/git.sh).
+8. **SSH keys** — the plan is made up front: before anything is installed, the
    run reports whether `SSH_KEYS_BUNDLE` is set or keys are present in `~/.ssh`,
    asks whether to use them, and if you have neither it says SSH setup will be
    skipped for now. It then adopts the keys you copy into `~/.ssh`: tightening
@@ -169,27 +173,36 @@ script, and a read of the requirements back out of the extracted copy.
    and nothing is fetched from the network. Set `SSH_KEYS_BUNDLE` (a directory,
    `.tar.gz`, `.tar` or `.zip`) to install from an offline bundle instead — the
    reproducible, non-interactive path. See [`setup/ssh.sh`](setup/ssh.sh).
-10. **Firefox** (optional) — only runs when Firefox is installed as a snap and no
-    deb build is present; on any other machine it reports the skip and does
-    nothing. It asks before doing anything, then removes the snap, purges the
+9. **Xbox Wireless Adapter** (optional) — only runs when the Microsoft dongle is
+   attached; on any other machine it reports the skip and does nothing. The
+   dongle is found dynamically (Microsoft vendor `045e`, identified by its
+   product string or the `mt76x2u` WiFi driver it binds to), not from a fixed
+   product-ID list, and the udev rule is generated from the `idProduct`(s)
+   actually found. It asks before doing anything, then installs a rule that
+   de-authorizes the dongle so Linux leaves it alone and a Windows dual boot
+   keeps its controller pairing. The adapter no longer works on Linux
+   afterwards — that is the point. See [`setup/xbox.sh`](setup/xbox.sh).
+10. **Visual Studio Code** — installed from Microsoft's apt repository, at the
+    end of the run with the other GUI step. On a machine with no graphical
+    environment it is deselected before the run and skipped again inside the
+    step; `SETUP_GUI=1` forces it. Deselect it at the `Steps to run` prompt (or
+    `SKIP_STEPS=vscode`) if a machine should not get it.
+11. **Firefox** (optional, GUI) — only runs when Firefox is installed as a snap
+    and no deb build is present; on any other machine it reports the skip and
+    does nothing, and a machine with no graphical environment never gets here at
+    all. It asks before doing anything, then removes the snap, purges the
     snap-transition package, adds `ppa:mozillateam/ppa` with a `1001` pin so its
     build is preferred, and installs `firefox` as a deb. See
     [`setup/firefox.sh`](setup/firefox.sh).
-11. **Xbox Wireless Adapter** (optional) — only runs when the Microsoft dongle is
-    attached; on any other machine it reports the skip and does nothing. The
-    dongle is found dynamically (Microsoft vendor `045e`, identified by its
-    product string or the `mt76x2u` WiFi driver it binds to), not from a fixed
-    product-ID list, and the udev rule is generated from the `idProduct`(s)
-    actually found. It asks before doing anything, then installs a rule that
-    de-authorizes the dongle so Linux leaves it alone and a Windows dual boot
-    keeps its controller pairing. The adapter no longer works on Linux
-    afterwards — that is the point. See [`setup/xbox.sh`](setup/xbox.sh).
-12. **NVIDIA drivers** (optional) — only runs when an NVIDIA display controller
-    is detected; on any other machine it reports the skip and does nothing. It
+12. **NVIDIA drivers** (optional) — only runs when a graphical environment is
+    present and an NVIDIA display controller is detected, and never under WSL,
+    where Windows owns the driver; on any other machine it is deselected up
+    front and reports the skip if forced. It
     asks before installing, then installs the **latest proprietary** branch
     (plain `nvidia-driver-<N>`, never `-open` or `-server`) through Ubuntu's
     `ubuntu-drivers` tool, which uses the signed module on Secure Boot systems.
-    A reboot is needed to load it. See [`setup/nvidia.sh`](setup/nvidia.sh).
+    A reboot is needed to load it, which is why it stays last. See
+    [`setup/nvidia.sh`](setup/nvidia.sh).
 
 ## Configuration
 
@@ -209,14 +222,15 @@ GIT_DEFAULT_BRANCH="main"              # name for new repositories
 GIT_CORE_EDITOR="code --wait"          # git commit editor; empty leaves it unset
 SSH_KEYS_BUNDLE=""                     # optional: install keys from an offline bundle
 SSH_KEYS_VERIFY="1"                    # after setup, `ssh -T` each configured host
-SSH_DIR="$HOME/.ssh"                   # where step 9 looks for keys / writes config
+SSH_DIR="$HOME/.ssh"                   # where step 8 looks for keys / writes config
 INSTALL_FIREFOX=""                     # optional: 1 installs, 0 skips, unset prompts (snap-gated)
 INSTALL_XBOX=""                        # optional: 1 installs, 0 skips, unset prompts (dongle-gated)
 XBOX_DONGLE_IDS=""                     # optional override; empty auto-detects the attached dongle
-INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GPU-gated)
+INSTALL_NVIDIA=""                      # optional: 1 installs, 0 skips, unset prompts (GUI + GPU-gated, never WSL)
 NVIDIA_DRIVER=""                       # empty = latest proprietary; a branch (e.g. 580) pins it; "recommended" defers to Ubuntu
 SKIP_STEPS=""                          # optional: space-, tab- or comma-separated step ids to skip (e.g. "vscode php nvidia")
 SETUP_DESKTOP=""                       # optional: force step 1's desktop (gnome, cinnamon, xfce, mate, kde, lxqt, budgie, unity, unknown)
+SETUP_GUI=""                           # optional: 1 = graphical machine, 0 = no GUI (unset auto-detects; WSL counts as no GUI)
 ```
 
 `SKIP_STEPS` lists steps to skip, by their id in the [Status](#status) table.
@@ -229,6 +243,14 @@ session: one of `gnome`, `cinnamon`, `xfce`, `mate`, `kde`, `lxqt`, `budgie`,
 `unity`, or `unknown` to skip detection entirely and install only the
 desktop-neutral package set. An id that names no desktop is warned about and
 detection proceeds normally.
+
+`SETUP_GUI` pins the graphical-environment detection described in
+[No graphical environment](#no-graphical-environment): `1` treats the machine
+as graphical (the GUI packages, the desktop PPAs, VS Code and Firefox all take
+part — and the NVIDIA step may, when a GPU is detected as well), `0` treats it
+as headless (all of them are skipped). Unset, it is
+detected — and WSL counts as headless by default, because Windows owns the
+desktop there.
 
 Some settings are arrays edited in place rather than exported — the global
 Composer packages in `_COMPOSER_GLOBAL_PACKAGES` in `setup/php.sh` and the
@@ -257,18 +279,24 @@ deselected at the `Steps to run` prompt (see
 | 1 | System update & base packages | [`setup/base_packages.sh`](setup/base_packages.sh) |
 | 2 | Zsh + Oh-My-Zsh | [`setup/zsh.sh`](setup/zsh.sh) |
 | 3 | Docker Engine | [`setup/docker.sh`](setup/docker.sh) |
-| 4 | Visual Studio Code | [`setup/vscode.sh`](setup/vscode.sh) |
-| 5 | Node.js + npm | [`setup/node.sh`](setup/node.sh) |
-| 6 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
-| 7 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
-| 8 | Git configuration | [`setup/git.sh`](setup/git.sh) |
-| 9 | SSH keys | [`setup/ssh.sh`](setup/ssh.sh) |
-| 10 | Firefox (optional) | [`setup/firefox.sh`](setup/firefox.sh) |
-| 11 | Xbox Wireless Adapter (optional) | [`setup/xbox.sh`](setup/xbox.sh) |
+| 4 | Node.js + npm | [`setup/node.sh`](setup/node.sh) |
+| 5 | PHP + Composer | [`setup/php.sh`](setup/php.sh) |
+| 6 | SDKMAN + Java | [`setup/sdkman.sh`](setup/sdkman.sh) |
+| 7 | Git configuration | [`setup/git.sh`](setup/git.sh) |
+| 8 | SSH keys | [`setup/ssh.sh`](setup/ssh.sh) |
+| 9 | Xbox Wireless Adapter (optional) | [`setup/xbox.sh`](setup/xbox.sh) |
+| 10 | Visual Studio Code (GUI) | [`setup/vscode.sh`](setup/vscode.sh) |
+| 11 | Firefox (optional, GUI) | [`setup/firefox.sh`](setup/firefox.sh) |
 | 12 | NVIDIA drivers (optional) | [`setup/nvidia.sh`](setup/nvidia.sh) |
 
+The two GUI steps sit at the end, just before the reboot-last NVIDIA step: on a
+machine with no graphical environment all three are deselected before the run
+and gated again inside — and a machine with a GUI but no NVIDIA GPU deselects
+the NVIDIA step alone. See
+[No graphical environment](#no-graphical-environment).
+
 [`setup/vscode.sh`](setup/vscode.sh) installs Visual Studio Code from
-Microsoft's apt repository. It is called from `main.sh` as step 4; deselect it
+Microsoft's apt repository. It is called from `main.sh` as step 10; deselect it
 at the `Steps to run` prompt (or `SKIP_STEPS=vscode`) if a machine should not
 get it.
 
@@ -292,7 +320,9 @@ unset rather than guessed. The default branch is `main` (`GIT_DEFAULT_BRANCH`
 overrides it), the module sets `push.default current` plus
 `push.autoSetupRemote`, `fetch.prune`, `rebase.autosquash`, `rerere`,
 `merge.conflictstyle zdiff3`, `diff.algorithm histogram` and `color.ui auto`,
-and points `core.editor` at `code --wait` when VS Code is present.
+and points `core.editor` at `code --wait` when VS Code is already present — VS
+Code is step 10, after this one, so on a fresh machine it is the vscode step
+that re-applies the setting once `code` is installed.
 
 [`setup/ssh.sh`](setup/ssh.sh) adopts the SSH keys already in `~/.ssh`. An
 up-front `ssh_preflight` (see [Before it runs](#before-it-runs)) decides whether
@@ -374,18 +404,21 @@ afterwards, so pair the controller once more in Windows after enabling the rule.
 To undo it, remove `/etc/udev/rules.d/99-xbox-wireless-adapter.rules` and reload
 the rules again.
 
-[`setup/nvidia.sh`](setup/nvidia.sh) is the other hardware-gated step: it
-looks for an NVIDIA display controller (PCI vendor `0x10de` with class `0x03xx`,
-read from sysfs so it needs nothing installed) and skips with a message on
-everything else. When a GPU is found and no driver is loaded or installed, it
-asks whether to proceed — `INSTALL_NVIDIA=1` installs without asking,
-`INSTALL_NVIDIA=0` skips without asking — then installs `ubuntu-drivers-common`
-and runs `ubuntu-drivers install nvidia:<branch>`. The branch is the highest
-plain `nvidia-driver-<N>` that `ubuntu-drivers devices` offers: `-open` (NVIDIA
-open kernel modules) and `-server` branches are deliberately not chosen. Pin a
-branch with `NVIDIA_DRIVER=580`, or set `NVIDIA_DRIVER=recommended` to accept
-whatever Ubuntu recommends. The driver only loads on reboot, which is why the
-step runs last.
+[`setup/nvidia.sh`](setup/nvidia.sh) is the other hardware-gated step, and the
+only one that is also GUI-gated: under WSL (Windows owns the driver there) and
+on a machine with no graphical environment it never runs, and
+`INSTALL_NVIDIA=1` cannot override that — it only bypasses the prompt. On a
+graphical machine it looks for an NVIDIA display controller (PCI vendor `0x10de`
+with class `0x03xx`, read from sysfs so it needs nothing installed) and skips
+with a message on everything else. When a GPU is found and no driver is loaded
+or installed, it asks whether to proceed — `INSTALL_NVIDIA=1` installs without
+asking, `INSTALL_NVIDIA=0` skips without asking — then installs
+`ubuntu-drivers-common` and runs `ubuntu-drivers install nvidia:<branch>`. The
+branch is the highest plain `nvidia-driver-<N>` that `ubuntu-drivers devices`
+offers: `-open` (NVIDIA open kernel modules) and `-server` branches are
+deliberately not chosen. Pin a branch with `NVIDIA_DRIVER=580`, or set
+`NVIDIA_DRIVER=recommended` to accept whatever Ubuntu recommends. The driver
+only loads on reboot, which is why the step runs last.
 
 ### Known gaps
 
@@ -426,7 +459,7 @@ linux-utils/
     ├── firefox.sh       # Firefox as a deb instead of the snap (snap-gated)
     ├── git.sh           # global git identity and defaults
     ├── node.sh          # Node.js + npm from the archive
-    ├── nvidia.sh        # NVIDIA proprietary driver via ubuntu-drivers (GPU-gated)
+    ├── nvidia.sh        # NVIDIA proprietary driver via ubuntu-drivers (GUI + GPU-gated)
     ├── php.sh           # PHP CLI from the archive + Composer
     ├── zsh.sh           # zsh, Oh-My-Zsh, powerlevel10k, base .zshrc
     ├── vscode.sh        # VS Code from Microsoft's apt repository
@@ -504,6 +537,8 @@ is the guide to consuming them from a script of your own.
 | `readme_section "Heading" [file]` | Print the body of any `## Heading` in a markdown file, stopping at the next heading. |
 | `_os_release` | Read a value out of `/etc/os-release`. |
 | `detect_desktop_environment` | Print the machine's desktop id (`gnome`, `cinnamon`, `xfce`, `mate`, `kde`, `lxqt`, `budgie`, `unity`), `unknown` when none — or more than one — matches. Order: `SETUP_DESKTOP`, the XDG session variables, the account's saved session, the installed session package. |
+| `is_wsl` | Are we running under the Windows Subsystem for Linux? `WSL_DISTRO_NAME` / `WSL_INTEROP` in the environment, or a kernel release carrying `microsoft` / `wsl`. |
+| `gui_available` | Should this run install graphical software? Order: `SETUP_GUI` (`1`/`0`), WSL → no, a live `DISPLAY`/`WAYLAND_DISPLAY` → yes, a detected desktop → yes, an installed display manager → yes, otherwise no. Answered once per run and remembered. |
 | `_normalize_desktop_token` | Map one session token (`X-Cinnamon`, `ubuntu`, `plasmawayland`) to a desktop id; fails when the token names no desktop. |
 
 Each requirement needs a check, registered as a `key|predicate|detail` row in
@@ -764,7 +799,7 @@ checklist and lets you pick which to run:
      [x]   2. Zsh + Oh-My-Zsh
      [x]   3. Docker Engine
      ...
-     [x]  12. NVIDIA drivers (GPU-gated)
+     [x]  12. NVIDIA drivers (GUI + GPU-gated)
 
      ↑/↓ move · space toggle · a all · n none · Enter continue · q quit
 ```
@@ -775,8 +810,13 @@ required first one, `Enter` confirms and `q` or `Ctrl-D` aborts the run. Step 1
 (system update & base packages) is the bootstrap the later steps depend on, so
 it is always selected — the cursor can land on it, but `space` there is
 rejected. A deselected step prints a `Skipping: …` line and is otherwise
-untouched; the three already-gated steps (firefox, xbox, nvidia) keep their own
-hardware checks and prompts when they are selected. The checklist sizes itself to the terminal: every line is clipped to
+untouched; the four already-gated steps (vscode, firefox, xbox, nvidia) keep
+their own environment and hardware checks and prompts when they are selected —
+see [No graphical environment](#no-graphical-environment). On a machine with no
+graphical environment the two GUI steps and the NVIDIA step start unticked for
+exactly that reason; on one with a GUI but no NVIDIA GPU, the NVIDIA step alone
+does.
+The checklist sizes itself to the terminal: every line is clipped to
 the window width (a wrapped line would scramble the redraw), and on a window
 too short for all twelve rows it shows the rows around the cursor rather than
 the whole list.
@@ -797,6 +837,42 @@ has it), while the zsh step's own copy in `.zshrc` simply does not happen. If
 your login shell is zsh even though you skipped the step, add
 `export PATH="$HOME/.local/bin:$PATH"` to your own zsh config — zsh does not
 read `~/.profile`.
+
+### No graphical environment
+
+Right after the run confirmation, `main.sh` asks `gui_available` (from
+[`lib/preflight.sh`](lib/preflight.sh), documented above) whether this machine
+can run graphical software at all. The order of the answer:
+
+1. `SETUP_GUI=1` / `SETUP_GUI=0` pins it — the escape hatch for every case below.
+2. WSL counts as **no GUI**: Windows owns the desktop there, so a Linux desktop
+   app has nothing to draw on. The WSLg support for running Linux GUI apps is
+   the exception its user opts into with `SETUP_GUI=1`.
+3. Otherwise a live `DISPLAY` or `WAYLAND_DISPLAY` means yes; failing that, a
+   detected desktop environment (the same detection step 1 uses, which also
+   covers an SSH login into a machine that has one); and failing that, an
+   installed display manager (`/etc/X11/default-display-manager`).
+
+A machine with no GUI then gets a slimmer run, automatically:
+
+- `vscode`, `firefox` and `nvidia` are added to `SKIP_STEPS`, so they start
+  **unticked** in the `Steps to run` checklist (and are dropped entirely in an
+  unattended run). Both GUI steps also gate themselves again inside, so even a
+  forced selection reports the skip — `SETUP_GUI=1` is what installs them. The
+  NVIDIA step's gates are absolute: it needs a GUI *and* a detected NVIDIA GPU,
+  `INSTALL_NVIDIA=1` only bypasses its prompt, and under WSL it never runs.
+- Step 1 drops the whole GUI package set — `ubuntu-restricted-extras`,
+  `synaptic`, `solaar`, `deluge`, `mpv` and LibreOffice — plus the
+  desktop-specific extras, the core-fonts EULA preseed that only
+  `ubuntu-restricted-extras` needs, and every third-party PPA (all seven serve
+  GUI apps). What is left is the core and the CLI extras.
+- The same checklist deselects the NVIDIA step alone on a machine that *does*
+  have a GUI but no NVIDIA display controller — there is nothing to install a
+  driver for.
+
+Everything CLI — base packages, zsh, Docker, Node, PHP, SDKMAN, git, SSH, the
+Xbox udev rule — is untouched, which is what lets the same script provision a
+server or a WSL distro.
 
 ### SSH keys up front
 
@@ -826,7 +902,7 @@ and carries on with the rest of the run:
   ›  SSH setup will be skipped for now
 ```
 
-The answer is remembered as a plan and step 9 carries it out, so SSH is decided
+The answer is remembered as a plan and step 8 carries it out, so SSH is decided
 once, up front, and never re-prompted. Detection here is dependency-free (it
 reads key headers rather than calling `ssh-keygen`), because it runs before step 1
 has installed `openssh-client`. Like every other confirmation, it is
@@ -844,14 +920,20 @@ Two things must be true for `main.sh` to run with no terminal:
 
 With no terminal every step runs, exactly as a clean clone always has. Set
 `SKIP_STEPS` to skip steps unattended — `SKIP_STEPS="vscode php nvidia"` — rather
-than maintaining a fork with the `*_setup` calls removed.
+than maintaining a fork with the `*_setup` calls removed. Two skip lists build
+themselves: a machine with no graphical environment (WSL, a server — see
+[No graphical environment](#no-graphical-environment)) always drops `vscode`,
+`firefox` and `nvidia` (`SETUP_GUI=1` puts the GUI steps back), and any machine
+without an NVIDIA display controller drops `nvidia` regardless.
 
 Non-interactive apt is handled for you: the entrypoint exports
 `DEBIAN_FRONTEND=noninteractive`, `NEEDRESTART_MODE=a` and
 `APT_LISTCHANGES_FRONTEND=none`, and pre-accepts the core-fonts EULA that
-`ubuntu-restricted-extras` pulls in. The base package set is split into a small
-core (missing → the run stops), desktop-neutral extras (missing → warned about
-and skipped) and desktop-specific extras picked from the detected desktop —
+`ubuntu-restricted-extras` pulls in — a preseed step 1 only bothers with where
+it installs that package at all. The base package set is split into a small
+core (missing → the run stops), CLI extras (missing → warned about
+and skipped), GUI extras (the same, and only where a graphical environment is
+detected) and desktop-specific extras picked from the detected desktop —
 which `SETUP_DESKTOP` pins unattended: `SETUP_DESKTOP=gnome`, or
 `SETUP_DESKTOP=unknown` for the neutral set with no detection at all. That is
 what makes the same script work across 22.04, 24.04 and 26.04, where packages
@@ -939,7 +1021,10 @@ A few rules keep the layering intact:
   archives (LibreOffice, Solaar, mpv, deadbeef, gnome-mpv, grub-customizer, GDM
   settings) and installs packages straight out of them, so dropping the
   `add-apt-repository` lines means also dropping the packages that only exist
-  there. Two of the seven are gated: `gnome-mpv` is probed only on a GTK
+  there. All seven serve GUI apps, so a machine with no graphical environment
+  never probes, let alone adds, any of them (see
+  [No graphical environment](#no-graphical-environment)). Two of the seven are
+  additionally gated: `gnome-mpv` is probed only on a GTK
   desktop, where the `celluloid` package it builds belongs, and `gdm-settings`
   only when the detected desktop is GNOME *and* GDM is the active display
   manager (`/etc/X11/default-display-manager`) — any other machine never
@@ -963,9 +1048,12 @@ A few rules keep the layering intact:
   archive package because Ubuntu builds `nodejs` `--without-npm`; it is also what
   provides `npx`. Global packages install into `~/.local` (`NPM_PREFIX`), never
   with sudo.
-- **The NVIDIA driver step is GPU-gated and opt-in.** `setup/nvidia.sh` installs
-  the newest plain `nvidia-driver-<N>` the hardware supports, not the `-open`
-  branch Canonical tends to recommend for Turing and newer. The trade-off: a new
+- **The NVIDIA driver step is GUI- and GPU-gated and opt-in.** `setup/nvidia.sh`
+  installs the newest plain `nvidia-driver-<N>` the hardware supports, not the
+  `-open` branch Canonical tends to recommend for Turing and newer — and only on
+  a machine with a graphical environment and an NVIDIA display controller; a
+  headless server or WSL, where Windows owns the driver, never gets it, and
+  `INSTALL_NVIDIA=1` cannot override that. The trade-off: a new
   branch can drop support for older cards, so `NVIDIA_DRIVER=580` pins one that
   still does, and `NVIDIA_DRIVER=recommended` hands the choice back to Ubuntu.
   On a Secure Boot machine, `ubuntu-drivers` installs the signed prebuilt module

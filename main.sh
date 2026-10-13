@@ -12,7 +12,9 @@ IFS=$'\n\t'
 
 # Non-interactive apt, process-wide (that is why it lives in the entrypoint).
 # Without DEBIAN_FRONTEND the ubuntu-restricted-extras / ttf-mscorefonts EULA
-# blocks the install, and on 22.04+ needrestart stops to ask about services.
+# blocks the install — step 1 pre-seeds that EULA, and installs the package only
+# where a graphical environment is detected — and on 22.04+ needrestart stops
+# to ask about services.
 # UCF_FORCE_CONFFOLD keeps a package upgrade from prompting about changed config
 # files. All of these are fatal to an unattended run.
 export DEBIAN_FRONTEND=noninteractive
@@ -85,20 +87,25 @@ run_or_die() {
 # `id|label`, in run order. `id` names the `${id}_setup` function called below;
 # the label is what the "Steps to run" checklist shows. Step 1 (base_packages) is
 # the bootstrap — it installs curl/git/software-properties-common the later steps
-# depend on — so it is always selected and cannot be toggled off.
+# depend on — so it is always selected and cannot be toggled off. The two GUI
+# steps (vscode, firefox) sit at the end on purpose, right before the reboot-last
+# NVIDIA step: on a machine with no graphical environment (WSL, a server) all
+# three are deselected and skipped entirely, so nothing that only a desktop
+# needs gets in the way of the CLI tooling — and a machine with a GUI but no
+# NVIDIA GPU never sees the NVIDIA step ticked either.
 _STEP_SPECS=(
     'base_packages|System update & base packages'
     'zsh|Zsh + Oh-My-Zsh'
     'docker|Docker Engine'
-    'vscode|Visual Studio Code'
     'node|Node.js + npm'
     'php|PHP + Composer'
     'sdkman|SDKMAN + Java'
     'git|Git configuration'
     'ssh|SSH keys'
-    'firefox|Firefox (snap-gated)'
     'xbox|Xbox Wireless Adapter (dongle-gated)'
-    'nvidia|NVIDIA drivers (GPU-gated)'
+    'vscode|Visual Studio Code'
+    'firefox|Firefox (snap-gated)'
+    'nvidia|NVIDIA drivers (GUI + GPU-gated)'
 )
 readonly _STEP_REQUIRED='base_packages'
 
@@ -126,6 +133,35 @@ banner 'DEVELOPMENT MACHINE SETUP'
 
 # Show README requirements, verify them on this machine, ask for confirmation.
 preflight || exit $?
+
+# No graphical environment (WSL, a server, a container) means the GUI steps have
+# nothing to run on and nothing to draw with, and the NVIDIA step has no display
+# to drive — Windows owns the GPU under WSL, and a headless box never needs a
+# Linux graphics driver. Adding the ids to SKIP_STEPS is what deselects them in
+# the checklist below and drops them in an unattended run. SETUP_GUI=1 still
+# installs the GUI steps (their own gates read the same switch); the NVIDIA
+# step's gates are absolute — it needs a GUI *and* a detected NVIDIA GPU, and
+# under WSL it always skips.
+_deselect_steps() {
+    local skip="${SKIP_STEPS:-}" id
+    skip="${skip//,/ }"
+    skip="${skip//$'\n'/ }"
+    skip="${skip//$'\t'/ }"
+    for id in "$@"; do
+        [[ " $skip " == *" $id "* ]] || skip="${skip:+$skip }$id"
+    done
+    SKIP_STEPS="$skip"
+}
+
+if ! gui_available; then
+    step 'No graphical environment — Visual Studio Code, Firefox and the NVIDIA driver step are deselected (SETUP_GUI=1 restores the GUI steps)'
+    _deselect_steps vscode firefox nvidia
+elif ! _nvidia_gpu_present; then
+    # The GPU half of the NVIDIA gate, checked here so the checklist reflects it
+    # — setup/nvidia.sh gates the same condition again inside the step.
+    step 'No NVIDIA GPU detected — the NVIDIA driver step is deselected'
+    _deselect_steps nvidia
+fi
 
 # Decide which steps to run, up front, while the user is still at the terminal.
 # The checklist defaults to everything selected; step 1 is locked on, and an
@@ -172,37 +208,34 @@ run_step docker
 
 
 # =============================================================================
-# 4. VSCODE SETUP
-# =============================================================================
-run_step vscode
-
-
-# =============================================================================
-# 5. NODE.JS + NPM
+# 4. NODE.JS + NPM
 # =============================================================================
 run_step node
 
 
 # =============================================================================
-# 6. PHP + COMPOSER
+# 5. PHP + COMPOSER
 # =============================================================================
 run_step php
 
 
 # =============================================================================
-# 7. SDKMAN + JAVA
+# 6. SDKMAN + JAVA
 # =============================================================================
 run_step sdkman
 
 
 # =============================================================================
-# 8. GIT CONFIGURATION
+# 7. GIT CONFIGURATION
 # =============================================================================
+# Runs before the GUI steps on purpose: on a fresh machine `code` is not
+# installed yet when the editor is configured, and setup/vscode.sh re-applies
+# core.editor once it is.
 run_step git
 
 
 # =============================================================================
-# 9. SSH KEYS
+# 8. SSH KEYS
 # =============================================================================
 # Executes the plan ssh_preflight chose at the top of the run: adopt the keys in
 # ~/.ssh (permissions + host mapping prompts), install an offline bundle, or skip.
@@ -212,31 +245,44 @@ run_step ssh
 
 
 # =============================================================================
-# 10. FIREFOX (only when installed as a snap and no deb is present)
+# 9. XBOX WIRELESS ADAPTER (only when the adapter is attached)
+# =============================================================================
+# A dual-boot fix, not a driver: when the Microsoft dongle is found it writes a
+# udev rule that de-authorizes it, so Linux leaves it alone and Windows keeps the
+# controller pairing. Skipped entirely when no dongle is attached, so every other
+# machine is unaffected. Runs before the GUI steps and the NVIDIA step on purpose:
+# those are the steps a machine without a display skips, and the one that wants
+# a reboot stays last.
+run_step xbox
+
+
+# =============================================================================
+# 10. VSCODE SETUP (only with a graphical environment)
+# =============================================================================
+# GUI steps last: on WSL or a server they are deselected before the run starts
+# (see the SKIP_STEPS block above) and gated again inside the step, so the CLI
+# tooling above is all such a machine ever gets to.
+run_step vscode
+
+
+# =============================================================================
+# 11. FIREFOX (only with a GUI, and only when installed as a snap with no deb)
 # =============================================================================
 # Ubuntu ships Firefox as a snap. This step is for a machine that wants the
 # Mozilla team's apt build instead: only when `snap list firefox` finds the snap
 # and dpkg reports no real deb does it ask, then swap them, pin the PPA and
 # install the deb. Skipped entirely everywhere else, so every other machine is
-# unaffected. Runs after SSH and before the hardware-gated steps.
+# unaffected — including one with no graphical environment, where the step is
+# deselected up front and gated again here.
 run_step firefox
 
 
 # =============================================================================
-# 11. XBOX WIRELESS ADAPTER (only when the adapter is attached)
-# =============================================================================
-# A dual-boot fix, not a driver: when the Microsoft dongle is found it writes a
-# udev rule that de-authorizes it, so Linux leaves it alone and Windows keeps the
-# controller pairing. Skipped entirely when no dongle is attached, so every other
-# machine is unaffected. Runs before the NVIDIA step on purpose, so the step that
-# wants a reboot stays last.
-run_step xbox
-
-
-# =============================================================================
-# 12. NVIDIA DRIVERS (only when an NVIDIA GPU is present)
+# 12. NVIDIA DRIVERS (only with a GUI and an NVIDIA GPU present)
 # =============================================================================
 # Last on purpose: the driver only takes effect after a reboot, so the run ends
-# with the machine ready to restart. Skipped entirely when no NVIDIA display
-# controller is found, so every other machine is unaffected.
+# with the machine ready to restart. Deselected up front when this machine has
+# no graphical environment or no NVIDIA GPU (see the gates above) — and gated
+# again inside — on WSL, where Windows owns the driver and the PCI bus inside
+# the distro only mirrors the hardware — so every other machine is unaffected.
 run_step nvidia

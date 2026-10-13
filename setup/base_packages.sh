@@ -29,6 +29,12 @@ source "$_setup_dir/../lib/utils.sh"
 # `apt update` exits 100 on any configured repository it cannot fetch, so one
 # dead PPA would otherwise abort the whole run at step 1 — which is exactly what
 # happened with `ubuntuhandbook1/mpv` on Ubuntu 26.04 (resolute).
+#
+# Every entry here serves a GUI application, so on a machine with no graphical
+# environment the whole list is skipped (see gui_available in lib/preflight.sh):
+# a CLI-only box gains nothing from seven suite probes, seven keyrings and seven
+# index refreshes. A repository serving a CLI package would have to be split out
+# of that gate to still be added there.
 _CUSTOM_REPOSITORIES=(
     'libreoffice/ppa||'
     'solaar-unifying/stable||'
@@ -53,23 +59,33 @@ _CORE_PACKAGES=(
     htop tmux
 )
 
-# Best-effort, desktop-neutral: media, CLI and release-specific extras for ANY
-# desktop — or none at all. Anything the running release does not carry
+# Best-effort CLI: release-specific extras and quality-of-life tools for ANY
+# machine — desktop or not. Anything the running release does not carry
 # (fastfetch before 24.04, a package renamed after 26.04) is warned about and
 # skipped, never fatal — a missing screensaver is not a reason to abandon the
 # whole machine. Desktop-specific extras live in _DE_PACKAGES below, so a
 # machine with no detected desktop still gets all of this and nothing more.
 _OPTIONAL_PACKAGES=(
-    ubuntu-restricted-extras
     bat fd-find xsel
     btop fastfetch
-    synaptic apt-xapian-index
+    apt-xapian-index
     powerline fonts-powerline
     libglib2.0-dev-bin
+    pipx
+)
+
+# Best-effort, graphical only: installed when gui_available (lib/preflight.sh)
+# reports a display — a desktop, a live DISPLAY/WAYLAND_DISPLAY, or SETUP_GUI=1.
+# On WSL, a server or a container none of these can ever open a window, so they
+# are dropped instead of downloaded: ubuntu-restricted-extras alone drags in the
+# codec stack, the Microsoft core fonts (whose EULA preseed_debconf exists for)
+# and a hundred megabytes of recommends.
+_GUI_PACKAGES=(
+    ubuntu-restricted-extras
+    synaptic
     solaar deluge
     mpv
     libreoffice libreoffice-style-sifr
-    pipx
 )
 
 # ── Desktop-specific extras ───────────────────────────────────────────────────
@@ -195,6 +211,8 @@ install_repo_prerequisites() {
 # Pre-accept the Microsoft core-fonts EULA that ubuntu-restricted-extras pulls
 # in. With DEBIAN_FRONTEND=noninteractive but no preseed, ttf-mscorefonts-
 # installer still drops into a license prompt that stalls an unattended run.
+# Only called when the GUI package set is installed at all — without a graphical
+# environment there is no restricted-extras and no EULA to pre-accept.
 preseed_debconf() {
     printf 'ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true\n' \
         | _sudo debconf-set-selections
@@ -263,7 +281,7 @@ add_custom_repositories() {
 
 # ── base_packages_setup ───────────────────────────────────────────────────────
 base_packages_setup() {
-    local codename ppa pkg when entry de
+    local codename ppa pkg when entry de has_gui=0
     local -a available=() candidates=() install=() missing=() de_extra=()
 
     section 'System update and base packages installation'
@@ -279,42 +297,55 @@ base_packages_setup() {
         *)       step "Desktop environment: $de" ;;
     esac
 
+    # Graphical environment or not (gui_available lives in lib/preflight.sh and
+    # honors SETUP_GUI) decides whether the GUI packages, the desktop-only
+    # repositories and the fonts EULA preseed take part at all. Announced here,
+    # before anything is fetched, so a CLI-only run is never a surprise.
+    if gui_available; then has_gui=1; fi
+    if (( ! has_gui )); then
+        step 'No graphical environment — GUI packages, desktop repositories and the fonts EULA preseed are skipped'
+    fi
+
     # The probe below needs curl and a PPA needs add-apt-repository; neither is
     # guaranteed on a fresh image. Bootstrap them before deciding anything.
     run_or_die 'Installing repository prerequisites' install_repo_prerequisites
 
-    codename="$(os_codename)"
-    if [[ -z "$codename" ]]; then
-        warn 'Could not read the Ubuntu codename — skipping every third-party repository'
-    else
-        for entry in "${_CUSTOM_REPOSITORIES[@]}"; do
-            IFS='|' read -r ppa pkg when <<< "$entry"
+    if (( has_gui )); then
+        codename="$(os_codename)"
+        if [[ -z "$codename" ]]; then
+            warn 'Could not read the Ubuntu codename — skipping every third-party repository'
+        else
+            for entry in "${_CUSTOM_REPOSITORIES[@]}"; do
+                IFS='|' read -r ppa pkg when <<< "$entry"
 
-            # Desktop-gated repositories are not probed at all on a desktop
-            # they do not serve — information, not a warning: nothing is wrong
-            # with a Mint box that never fetches a GNOME-only PPA.
-            if [[ -n "$when" && " $when " != *" $de "* ]]; then
-                step "Skipping $ppa — not used by the '$de' desktop (applies to: $when)"
-                continue
-            fi
-            if [[ "$pkg" == 'gdm-settings' ]] && ! gdm_is_active; then
-                step 'Skipping gdm-settings — GDM is not the active display manager'
-                continue
-            fi
+                # Desktop-gated repositories are not probed at all on a desktop
+                # they do not serve — information, not a warning: nothing is wrong
+                # with a Mint box that never fetches a GNOME-only PPA.
+                if [[ -n "$when" && " $when " != *" $de "* ]]; then
+                    step "Skipping $ppa — not used by the '$de' desktop (applies to: $when)"
+                    continue
+                fi
+                if [[ "$pkg" == 'gdm-settings' ]] && ! gdm_is_active; then
+                    step 'Skipping gdm-settings — GDM is not the active display manager'
+                    continue
+                fi
 
-            if ppa_suite_available "$ppa"; then
-                available+=( "$ppa" )
-            else
-                warn "Skipping $ppa — no suite published for $codename"
-            fi
-        done
+                if ppa_suite_available "$ppa"; then
+                    available+=( "$ppa" )
+                else
+                    warn "Skipping $ppa — no suite published for $codename"
+                fi
+            done
+        fi
     fi
 
     run_or_die 'Adding custom repositories' add_custom_repositories \
         ${available[@]+"${available[@]}"}
 
     run_or_die 'Updating and upgrading packages' update_and_upgrade
-    run_or_die 'Pre-accepting the core fonts EULA' preseed_debconf
+    if (( has_gui )); then
+        run_or_die 'Pre-accepting the core fonts EULA' preseed_debconf
+    fi
 
     # Resolve the package list against what the configured repositories carry.
     # Core packages abort the run when missing; the extras and the PPA-only
@@ -331,16 +362,24 @@ base_packages_setup() {
 
     candidates=( "${_OPTIONAL_PACKAGES[@]}" )
 
+    # The GUI-only extras — ubuntu-restricted-extras, the media players, the
+    # office suite — join only where a display exists to open them on. They then
+    # still go through the apt-cache probe below, so a release that does not
+    # carry one warns and is skipped like any other optional package.
+    if (( has_gui )); then
+        candidates+=( "${_GUI_PACKAGES[@]}" )
+    fi
+
     # The desktop-specific extras: the set for the detected desktop (nothing
     # for kde, lxqt and unknown — see _DE_PACKAGES), plus the GTK-only player
     # where a GTK stack is present. Everything then still goes through the
     # apt-cache probe below, so a desktop set naming a package this release
     # does not carry warns and is skipped like any other optional one.
-    if [[ -n "${_DE_PACKAGES[$de]:-}" ]]; then
+    if (( has_gui )) && [[ -n "${_DE_PACKAGES[$de]:-}" ]]; then
         IFS=' ' read -r -a de_extra <<< "${_DE_PACKAGES[$de]}"
         candidates+=( ${de_extra[@]+"${de_extra[@]}"} )
     fi
-    if [[ "$_GTK_DESKTOPS" == *" $de "* ]]; then
+    if (( has_gui )) && [[ "$_GTK_DESKTOPS" == *" $de "* ]]; then
         candidates+=( "${_GTK_PACKAGES[@]}" )
     fi
 
