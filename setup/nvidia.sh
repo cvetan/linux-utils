@@ -175,6 +175,7 @@ nvidia_setup() {
         fi
     fi
 
+    step 'This may take several minutes — DKMS is compiling the kernel module'
     run_or_die 'Installing the NVIDIA driver' install_nvidia_driver "$branch"
 
     success 'NVIDIA driver installed.'

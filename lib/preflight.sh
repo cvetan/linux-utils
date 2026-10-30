@@ -424,7 +424,18 @@ choose() {
         printf '%s\n' "${items[default-1]}"
         return 0
     fi
-    prompt_choice "$prompt" "$default" "${items[@]}"
+
+    if _interactive_ok; then
+        local -a specs=()
+        local _item
+        for _item in "${items[@]}"; do
+            specs+=( "$_item|$_item" )
+        done
+        prompt_select_one "$prompt" "${items[default-1]}" "${specs[@]}"
+    else
+        _select_fallback_note "$prompt"
+        prompt_choice "$prompt" "$default" "${items[@]}"
+    fi
 }
 
 # ── ask "prompt" [default] ────────────────────────────────────────────────────
