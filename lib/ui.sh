@@ -130,7 +130,7 @@ spinner_stop() {
     (( _SPINNER_DEPTH == 0 )) || return 0
 
     if [[ -n "${_SPINNER_PID:-}" ]]; then
-        kill "$_SPINNER_PID" 2>/dev/null || true
+        kill -9 "$_SPINNER_PID" 2>/dev/null || true
         wait "$_SPINNER_PID" 2>/dev/null || true
         _SPINNER_PID=''
         # Only erase the line if we actually drew one.
@@ -150,7 +150,7 @@ spinner_pause() {
     _SPINNER_PAUSED=0
     [[ -n "${_SPINNER_PID:-}" ]] || return 0
 
-    kill "$_SPINNER_PID" 2>/dev/null || true
+    kill -9 "$_SPINNER_PID" 2>/dev/null || true
     wait "$_SPINNER_PID" 2>/dev/null || true
     _SPINNER_PID=''
     _SPINNER_PAUSED=1
@@ -173,7 +173,7 @@ spinner_resume() {
 # error line that triggered the cleanup.
 spinner_cleanup() {
     if [[ -n "${_SPINNER_PID:-}" ]]; then
-        kill "$_SPINNER_PID" 2>/dev/null || true
+        kill -9 "$_SPINNER_PID" 2>/dev/null || true
         wait "$_SPINNER_PID" 2>/dev/null || true
         _SPINNER_PID=''
     fi
