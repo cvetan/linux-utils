@@ -200,9 +200,8 @@ preseed_debconf() {
         | _sudo debconf-set-selections
 }
 
-update_and_upgrade() {
+update_package_index() {
     _sudo apt update
-    _sudo apt upgrade -y
 }
 
 install_packages() {
@@ -256,7 +255,7 @@ add_custom_repositories() {
     done
 
     # One refresh covers every PPA above. Non-fatal on purpose: a PPA added
-    # moments ago may still be propagating, and update_and_upgrade runs its
+    # moments ago may still be propagating, and update_package_index runs its
     # own `apt update` regardless.
     _sudo apt update || warn 'apt update reported errors — see the log for details'
 }
@@ -313,10 +312,7 @@ base_packages_setup() {
     run_or_die 'Adding custom repositories' add_custom_repositories \
         ${available[@]+"${available[@]}"}
 
-    run_or_die 'Updating and upgrading packages' update_and_upgrade
-    info 'Upgraded packages — needrestart will restart affected services automatically.'
-    info 'If you ran this script from inside a desktop session, log out and back in'
-    info '(or reboot) so the session picks up any upgraded libraries (libc, libglib, etc.).'
+    run_or_die 'Updating the package index' update_package_index
     run_or_die 'Pre-accepting the core fonts EULA' preseed_debconf
 
     # Resolve the package list against what the configured repositories carry.

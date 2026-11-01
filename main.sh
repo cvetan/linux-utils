@@ -12,11 +12,13 @@ IFS=$'\n\t'
 
 # Non-interactive apt, process-wide (that is why it lives in the entrypoint).
 # Without DEBIAN_FRONTEND the ubuntu-restricted-extras / ttf-mscorefonts EULA
-# blocks the install, and on 22.04+ needrestart stops to ask about services.
-# UCF_FORCE_CONFFOLD keeps a package upgrade from prompting about changed config
-# files. All of these are fatal to an unattended run.
+# blocks the install, and on 22.04+ needrestart otherwise stops to ask about
+# services. NEEDRESTART_MODE=l makes it only list stale services, never restart
+# them — the system upgrade is done manually, so nothing here should restart a
+# running service mid-run. UCF_FORCE_CONFFOLD keeps a package upgrade from
+# prompting about changed config files. All of these are fatal to an unattended run.
 export DEBIAN_FRONTEND=noninteractive
-export NEEDRESTART_MODE=a
+export NEEDRESTART_MODE=l
 export APT_LISTCHANGES_FRONTEND=none
 export UCF_FORCE_CONFFOLD=1
 
