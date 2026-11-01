@@ -83,18 +83,36 @@ _nvidia_driver_installed() {
     grep -q 'install ok installed' <<< "$status"
 }
 
-# _nvidia_latest_proprietary — the highest `nvidia-driver-<N>` branch
+# _nvidia_latest_proprietary — the highest `nvidia-driver-<N>` plain branch
 # ubuntu-drivers lists for this hardware, excluding `-open` and `-server`. The
 # trailing-whitespace anchor in the pattern is what does the excluding: the
 # suffix on those variants is a `-`, not whitespace. Prints nothing (returns 1)
 # when ubuntu-drivers is absent or lists no plain branch.
+#
+# Also returns nothing when an `-open` variant of a newer branch is the best
+# available option, so the caller falls back to `ubuntu-drivers install` without
+# a pinned branch — which picks the right variant automatically. This matters on
+# RTX 40xx/50xx hardware where NVIDIA requires the open kernel module.
 _nvidia_latest_proprietary() {
     command_exists ubuntu-drivers || return 1
-    ubuntu-drivers devices 2>/dev/null \
-        | grep -oE 'nvidia-driver-[0-9]+[[:space:]]' \
-        | grep -oE '[0-9]+' \
-        | sort -n \
-        | tail -n1
+    local devices_out plain_max open_max
+    devices_out="$(ubuntu-drivers devices 2>/dev/null)"
+
+    plain_max="$(grep -oE 'nvidia-driver-[0-9]+[[:space:]]' <<< "$devices_out" \
+        | grep -oE '[0-9]+' | sort -n | tail -n1)"
+
+    open_max="$(grep -oE 'nvidia-driver-[0-9]+-open[[:space:]]' <<< "$devices_out" \
+        | grep -oE '[0-9]+' | sort -n | tail -n1)"
+
+    # If an open-module branch is newer than the best plain branch, return
+    # nothing so the caller lets ubuntu-drivers pick (it chooses the right
+    # variant and may select the open package).
+    if [[ -n "$open_max" ]] && \
+       { [[ -z "$plain_max" ]] || (( open_max > plain_max )); }; then
+        return 0
+    fi
+
+    [[ -n "$plain_max" ]] && printf '%s\n' "$plain_max" || return 1
 }
 
 # ── Install ───────────────────────────────────────────────────────────────────
@@ -110,12 +128,16 @@ install_nvidia_repo_prereqs() {
 
 # install_nvidia_driver [branch] — with no branch, let ubuntu-drivers pick; with
 # one, pin it (`nvidia:580`), which is the documented way to choose a version.
+#
+# Run under setsid so that postinstall scripts (kdump-tools, dracut, systemd
+# service enables) that spawn background children don't inherit the terminal's
+# foreground process group and hold the prompt after the script exits.
 install_nvidia_driver() {
     local branch="${1:-}"
     if [[ -n "$branch" ]]; then
-        _sudo ubuntu-drivers install "nvidia:${branch}"
+        setsid _sudo ubuntu-drivers install "nvidia:${branch}"
     else
-        _sudo ubuntu-drivers install
+        setsid _sudo ubuntu-drivers install
     fi
 }
 
@@ -171,12 +193,25 @@ nvidia_setup() {
         if [[ -n "$branch" ]]; then
             info "Installing the latest proprietary driver: nvidia-driver-$branch"
         else
-            warn 'No proprietary branch detected — using the driver Ubuntu recommends'
+            info 'No plain proprietary branch detected (open-module driver may be newer) — deferring to ubuntu-drivers'
         fi
     fi
 
     step 'This may take several minutes — DKMS is compiling the kernel module'
-    run_or_die 'Installing the NVIDIA driver' install_nvidia_driver "$branch"
+    run 'Installing the NVIDIA driver' install_nvidia_driver "$branch" || true
+
+    # ubuntu-drivers install exits 1 on a clean system due to a dpkg postinstall
+    # bug: the libnvidia-gl-<N> postinstall script queries for the previous driver
+    # version (e.g. libnvidia-gl-550) and dpkg-query returns 1 when it is absent.
+    # Verify the actual result by asking dpkg, not by trusting the exit code.
+    if ! _nvidia_driver_installed; then
+        error 'NVIDIA driver installation failed.'
+        return 1
+    fi
+
+    # Postinstall scripts may leave packages half-configured when the install
+    # command exits non-zero; fix-broken resolves that before the run ends.
+    run 'Fixing any broken package state' _sudo apt --fix-broken install -y || true
 
     success 'NVIDIA driver installed.'
     info 'Reboot to load the driver, then verify with nvidia-smi.'
