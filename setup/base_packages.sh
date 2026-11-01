@@ -176,7 +176,7 @@ _supports_no_update() {
 # is skipped, and the install then fails on the packages that exist only there.
 install_repo_prerequisites() {
     _sudo apt update
-    _sudo apt install -y ca-certificates curl gnupg software-properties-common
+    _sudo apt install -y ca-certificates curl gnupg software-properties-common needrestart
 
     # Minimal and cloud images enable only `main`; the CLI set (bat, fd-find,
     # ...) and ubuntu-restricted-extras live in universe/multiverse. Enabling
@@ -314,6 +314,9 @@ base_packages_setup() {
         ${available[@]+"${available[@]}"}
 
     run_or_die 'Updating and upgrading packages' update_and_upgrade
+    info 'Upgraded packages — needrestart will restart affected services automatically.'
+    info 'If you ran this script from inside a desktop session, log out and back in'
+    info '(or reboot) so the session picks up any upgraded libraries (libc, libglib, etc.).'
     run_or_die 'Pre-accepting the core fonts EULA' preseed_debconf
 
     # Resolve the package list against what the configured repositories carry.
