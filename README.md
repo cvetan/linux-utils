@@ -107,8 +107,9 @@ script, and a read of the requirements back out of the extracted copy.
 
 `main.sh` runs the modules below in order; see [Status](#status).
 
-1. **System update & base packages** — `apt update` and `apt upgrade`, the
-   `universe` and `multiverse` components, and the third-party PPAs listed under
+1. **System update & base packages** — `apt update` (the system upgrade is done
+   manually beforehand, not here), the `universe` and `multiverse` components,
+   and the third-party PPAs listed under
    [Notes](#notes). The package set is split in three: a small core the run
    cannot continue without (`build-essential`, `curl`, `wget`, `zip`, `unzip`,
    `git`, `zsh`, `gnupg`, `ca-certificates`, `lsb-release`, `xclip`, `htop`,
@@ -847,7 +848,7 @@ With no terminal every step runs, exactly as a clean clone always has. Set
 than maintaining a fork with the `*_setup` calls removed.
 
 Non-interactive apt is handled for you: the entrypoint exports
-`DEBIAN_FRONTEND=noninteractive`, `NEEDRESTART_MODE=a` and
+`DEBIAN_FRONTEND=noninteractive`, `NEEDRESTART_MODE=l` and
 `APT_LISTCHANGES_FRONTEND=none`, and pre-accepts the core-fonts EULA that
 `ubuntu-restricted-extras` pulls in. The base package set is split into a small
 core (missing → the run stops), desktop-neutral extras (missing → warned about
